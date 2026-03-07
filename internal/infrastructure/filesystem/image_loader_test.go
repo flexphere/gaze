@@ -34,6 +34,8 @@ func createTestImage(t *testing.T, dir, name, format string, w, h int) string {
 		if err := gif.Encode(f, img, nil); err != nil {
 			t.Fatalf("encoding GIF: %v", err)
 		}
+	default:
+		t.Fatalf("unsupported image format: %q", format)
 	}
 
 	return path
@@ -96,6 +98,63 @@ func TestImageLoader_Load_GIF(t *testing.T) {
 	}
 	if entity.Format != "gif" {
 		t.Errorf("Format = %q, want %q", entity.Format, "gif")
+	}
+}
+
+func TestImageLoader_Load_BMP(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "testdata", "test.bmp")
+	loader := NewImageLoader()
+	entity, err := loader.Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if entity.Width != 100 {
+		t.Errorf("Width = %d, want 100", entity.Width)
+	}
+	if entity.Height != 100 {
+		t.Errorf("Height = %d, want 100", entity.Height)
+	}
+	if entity.Format != "bmp" {
+		t.Errorf("Format = %q, want %q", entity.Format, "bmp")
+	}
+}
+
+func TestImageLoader_Load_TIFF(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "testdata", "test.tiff")
+	loader := NewImageLoader()
+	entity, err := loader.Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if entity.Width != 100 {
+		t.Errorf("Width = %d, want 100", entity.Width)
+	}
+	if entity.Height != 100 {
+		t.Errorf("Height = %d, want 100", entity.Height)
+	}
+	if entity.Format != "tiff" {
+		t.Errorf("Format = %q, want %q", entity.Format, "tiff")
+	}
+}
+
+func TestImageLoader_Load_WebP(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "testdata", "test.webp")
+	loader := NewImageLoader()
+	entity, err := loader.Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if entity.Width != 100 {
+		t.Errorf("Width = %d, want 100", entity.Width)
+	}
+	if entity.Height != 100 {
+		t.Errorf("Height = %d, want 100", entity.Height)
+	}
+	if entity.Format != "webp" {
+		t.Errorf("Format = %q, want %q", entity.Format, "webp")
 	}
 }
 
