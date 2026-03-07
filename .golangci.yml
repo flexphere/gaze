@@ -1,0 +1,32 @@
+version: "2"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/flexphere/gaze
+
+linters:
+  enable:
+    - errcheck
+    - gosec
+    - staticcheck
+    - govet
+    - ineffassign
+    - unused
+    - misspell
+  settings:
+    errcheck:
+      check-type-assertions: true
+    gosec:
+      severity: medium
+      confidence: medium
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck

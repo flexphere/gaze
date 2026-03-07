@@ -1,0 +1,6 @@
+bin/
+coverage.out
+*.exe
+*.test
+*.prof
+.DS_Store
