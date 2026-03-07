@@ -4,3 +4,8 @@ coverage.out
 *.test
 *.prof
 .DS_Store
+
+# Allow .claude/skills to be tracked (overrides global .gitignore)
+!.claude/
+.claude/*
+!.claude/skills/

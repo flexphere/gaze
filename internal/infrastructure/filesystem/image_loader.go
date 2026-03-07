@@ -8,6 +8,10 @@ import (
 	_ "image/png"
 	"os"
 
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
+
 	"github.com/flexphere/gaze/internal/domain"
 )
 
@@ -20,6 +24,7 @@ func NewImageLoader() *ImageLoader {
 }
 
 // Load reads and decodes an image file.
+// Supports PNG, JPEG, GIF, BMP, TIFF, WebP via image.Decode.
 func (l *ImageLoader) Load(path string) (*domain.ImageEntity, error) {
 	f, err := os.Open(path) //nolint:gosec // path is user-provided CLI argument
 	if err != nil {
