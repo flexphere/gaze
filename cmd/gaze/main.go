@@ -61,7 +61,10 @@ func runViewer(_ *cobra.Command, args []string) error {
 	}
 
 	// Select renderer
-	r := selectRenderer(rendererFlag)
+	r, err := selectRenderer(rendererFlag)
+	if err != nil {
+		return fmt.Errorf("selecting renderer: %w", err)
+	}
 	vpCtrl := usecase.NewViewportControlUseCase()
 	renderFrameUC := usecase.NewRenderFrameUseCase(r)
 
@@ -88,14 +91,16 @@ func runViewer(_ *cobra.Command, args []string) error {
 }
 
 // selectRenderer chooses the renderer backend based on the flag value.
-func selectRenderer(flag string) usecase.RendererPort {
+func selectRenderer(flag string) (usecase.RendererPort, error) {
 	switch flag {
 	case "kitty":
-		return renderer.NewKittyRenderer()
+		return renderer.NewKittyRenderer(), nil
 	case "sixel":
-		return renderer.NewSixelRenderer()
+		return renderer.NewSixelRenderer(), nil
+	case "auto":
+		return detectRenderer(), nil
 	default:
-		return detectRenderer()
+		return nil, fmt.Errorf("unknown renderer %q: valid values are auto, kitty, sixel", flag)
 	}
 }
 

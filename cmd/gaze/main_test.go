@@ -8,17 +8,20 @@ import (
 
 func TestSelectRenderer(t *testing.T) {
 	tests := []struct {
-		name     string
-		flag     string
-		wantType string
+		name string
+		flag string
 	}{
-		{"kitty flag", "kitty", "*renderer.KittyRenderer"},
-		{"sixel flag", "sixel", "*renderer.SixelRenderer"},
+		{"kitty flag", "kitty"},
+		{"sixel flag", "sixel"},
+		{"auto flag", "auto"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := selectRenderer(tt.flag)
+			r, err := selectRenderer(tt.flag)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			switch tt.flag {
 			case "kitty":
 				if _, ok := r.(*renderer.KittyRenderer); !ok {
@@ -30,6 +33,13 @@ func TestSelectRenderer(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSelectRendererInvalidFlag(t *testing.T) {
+	_, err := selectRenderer("invalid")
+	if err == nil {
+		t.Fatal("expected error for invalid renderer flag, got nil")
 	}
 }
 
