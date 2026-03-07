@@ -4,6 +4,7 @@
 
 GoによるKitty Graphicsプロトコル対応のターミナル画像ビューア。
 ズーム・パン操作をキーボード/マウスで行える。
+Kitty Graphics非対応環境（tmux等）ではSixelフォールバックを自動選択する。
 
 ## アーキテクチャ
 
@@ -13,7 +14,7 @@ Clean Architectureに従う。各層の依存方向: domain ← usecase ← adap
 
 - **domain/**: エンティティ (ImageEntity, Viewport, Config)。外部依存なし
 - **usecase/**: ポートインターフェース定義 + ユースケース実装
-- **adapter/**: TUI (Bubbletea), Config (TOML), Renderer (Kitty)
+- **adapter/**: TUI (Bubbletea), Config (TOML), Renderer (Kitty, Sixel)
 - **infrastructure/**: ファイルシステム画像読み込み
 
 ### 境界ルール

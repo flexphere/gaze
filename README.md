@@ -1,10 +1,10 @@
 # gaze
 
-A terminal image viewer with zoom and pan support, powered by the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
+A terminal image viewer with zoom and pan support, powered by the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) with [Sixel](https://en.wikipedia.org/wiki/Sixel) fallback.
 
 ## Features
 
-- **High-performance rendering** - Image is uploaded once; zoom/pan updates only change the display region (~2.5ms/frame)
+- **High-performance rendering** - Kitty: image uploaded once, zoom/pan updates only change display region. Sixel: fallback for tmux and other terminals
 - **Keyboard & mouse controls** - Vim-style keys, arrow keys, mouse drag-to-pan, scroll-to-zoom
 - **Configurable keybindings** - Customize all key mappings via TOML config file
 - **Multiple image formats** - PNG, JPEG, GIF, BMP, TIFF, WebP
@@ -12,13 +12,14 @@ A terminal image viewer with zoom and pan support, powered by the [Kitty Graphic
 
 ## Supported Terminals
 
-| Terminal | Status |
-|----------|--------|
-| [Kitty](https://sw.kovidgoyal.net/kitty/) | Supported |
-| [Ghostty](https://ghostty.org/) | Supported |
-| [WezTerm](https://wezfurlong.org/wezterm/) | Supported |
+| Terminal | Renderer | Status |
+|----------|----------|--------|
+| [Kitty](https://sw.kovidgoyal.net/kitty/) | Kitty Graphics | Supported |
+| [Ghostty](https://ghostty.org/) | Kitty Graphics | Supported |
+| [WezTerm](https://wezfurlong.org/wezterm/) | Kitty Graphics | Supported |
+| tmux (3.4+) | Sixel | Supported (auto-detected) |
 
-> Other terminals supporting the Kitty Graphics Protocol should also work.
+> Other terminals supporting Kitty Graphics Protocol or Sixel should also work.
 
 ## Installation
 
@@ -38,7 +39,7 @@ make build
 ## Usage
 
 ```bash
-gaze <image-file>
+gaze [--renderer auto|kitty|sixel] <image-file>
 ```
 
 ```bash
@@ -47,6 +48,12 @@ gaze photo.png
 gaze screenshot.jpg
 gaze animation.gif
 gaze image.webp
+
+# Force Sixel renderer (e.g. in tmux)
+gaze --renderer sixel photo.png
+
+# Force Kitty renderer
+gaze --renderer kitty photo.png
 ```
 
 ## Controls
@@ -113,7 +120,7 @@ internal/
   adapter/
     tui/           Bubbletea TUI (Model/Update/View, KeyMap, StatusBar)
     config/        TOML configuration loader
-    renderer/      Kitty Graphics Protocol implementation
+    renderer/      Kitty Graphics Protocol + Sixel renderer implementations
   infrastructure/
     filesystem/    Image file loading (PNG, JPEG, GIF, BMP, TIFF, WebP)
 ```
