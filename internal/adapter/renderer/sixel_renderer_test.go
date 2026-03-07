@@ -56,9 +56,9 @@ func TestSixelRenderer_Display(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should start with cursor home
-	if !strings.HasPrefix(output, "\x1b[H") {
-		t.Error("output should start with cursor home escape")
+	// Should start with screen clear + cursor home
+	if !strings.HasPrefix(output, "\x1b[2J\x1b[H") {
+		t.Error("output should start with screen clear and cursor home escape")
 	}
 
 	// Should contain Sixel introducer (DCS)

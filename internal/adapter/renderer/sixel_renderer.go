@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	"image/draw"
 	"math"
 
 	"github.com/mattn/go-sixel"
@@ -54,10 +53,6 @@ func (r *SixelRenderer) Display(vp *domain.Viewport) (string, error) {
 		return "", nil
 	}
 
-	// Crop visible region from source image
-	cropped := image.NewRGBA(image.Rect(0, 0, srcW, srcH))
-	draw.Draw(cropped, cropped.Bounds(), r.img, rect.Min, draw.Src)
-
 	// Calculate display pixel size from terminal cells
 	pixW := cols * defaultCellWidth
 	pixH := rows * defaultCellHeight
@@ -82,9 +77,9 @@ func (r *SixelRenderer) Display(vp *domain.Viewport) (string, error) {
 		displayH = 1
 	}
 
-	// Resize cropped image to display pixel dimensions
+	// Scale source image region directly to display pixel dimensions
 	resized := image.NewRGBA(image.Rect(0, 0, displayW, displayH))
-	xdraw.BiLinear.Scale(resized, resized.Bounds(), cropped, cropped.Bounds(), xdraw.Src, nil)
+	xdraw.BiLinear.Scale(resized, resized.Bounds(), r.img, rect, xdraw.Src, nil)
 
 	// Encode to Sixel
 	var buf bytes.Buffer
@@ -94,8 +89,8 @@ func (r *SixelRenderer) Display(vp *domain.Viewport) (string, error) {
 		return "", fmt.Errorf("encoding sixel: %w", err)
 	}
 
-	// Move cursor to top-left and output sixel data
-	output := "\x1b[H" + buf.String()
+	// Clear screen, move cursor to top-left and output sixel data
+	output := "\x1b[2J\x1b[H" + buf.String()
 	return output, nil
 }
 
