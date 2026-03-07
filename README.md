@@ -7,7 +7,7 @@ A terminal image viewer with zoom and pan support, powered by the [Kitty Graphic
 - **High-performance rendering** - Image is uploaded once; zoom/pan updates only change the display region (~2.5ms/frame)
 - **Keyboard & mouse controls** - Vim-style keys, arrow keys, mouse drag-to-pan, scroll-to-zoom
 - **Configurable keybindings** - Customize all key mappings via TOML config file
-- **Multiple image formats** - PNG, JPEG, GIF
+- **Multiple image formats** - PNG, JPEG, GIF, BMP, TIFF, WebP
 - **Clean Architecture** - Modular design for easy extension and testing
 
 ## Supported Terminals
@@ -46,6 +46,7 @@ gaze <image-file>
 gaze photo.png
 gaze screenshot.jpg
 gaze animation.gif
+gaze image.webp
 ```
 
 ## Controls
@@ -114,7 +115,7 @@ internal/
     config/        TOML configuration loader
     renderer/      Kitty Graphics Protocol implementation
   infrastructure/
-    filesystem/    Image file loading (PNG, JPEG, GIF)
+    filesystem/    Image file loading (PNG, JPEG, GIF, BMP, TIFF, WebP)
 ```
 
 ## Development
