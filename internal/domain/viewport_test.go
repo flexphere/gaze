@@ -371,6 +371,33 @@ func TestViewport_ZoomPercentage(t *testing.T) {
 	}
 }
 
+func TestViewport_IsZoomed(t *testing.T) {
+	tests := []struct {
+		name      string
+		zoomLevel float64
+		want      bool
+	}{
+		{"fit to window", 1.0, false},
+		{"just above 1.0 within tolerance", 1.0005, false},
+		{"zoomed in", 1.5, true},
+		{"zoomed in 2x", 2.0, true},
+		{"zoomed out", 0.5, false},
+		{"slightly above tolerance", 1.002, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vp := setupViewport(1000, 800, 80, 24)
+			vp.ZoomLevel = tt.zoomLevel
+
+			got := vp.IsZoomed()
+			if got != tt.want {
+				t.Errorf("IsZoomed() at zoom %f = %v, want %v", tt.zoomLevel, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestViewport_VisibleWidth_ZeroZoom(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.ZoomLevel = 0

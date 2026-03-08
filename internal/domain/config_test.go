@@ -43,4 +43,16 @@ func TestDefaultConfig(t *testing.T) {
 			t.Error("MaxZoom should be greater than MinZoom")
 		}
 	})
+
+	t.Run("minimap defaults", func(t *testing.T) {
+		if !cfg.Minimap.Enabled {
+			t.Error("Minimap should be enabled by default")
+		}
+		if cfg.Minimap.Size <= 0 || cfg.Minimap.Size > 1.0 {
+			t.Errorf("Minimap.Size should be between 0 and 1, got %f", cfg.Minimap.Size)
+		}
+		if cfg.Minimap.BorderColor == "" {
+			t.Error("Minimap.BorderColor should have a default value")
+		}
+	})
 }

@@ -58,7 +58,7 @@ func runViewer(_ *cobra.Command, args []string) error {
 	// Create renderer and use cases
 	kittyRenderer := renderer.NewKittyRenderer()
 	vpCtrl := usecase.NewViewportControlUseCase()
-	renderFrameUC := usecase.NewRenderFrameUseCase(kittyRenderer)
+	renderFrameUC := usecase.NewRenderFrameUseCase(kittyRenderer, cfg.Minimap)
 
 	// Create TUI model
 	model := tui.NewModel(img, cfg, vpCtrl, renderFrameUC)
@@ -75,6 +75,9 @@ func runViewer(_ *cobra.Command, args []string) error {
 	}
 
 	// Clean up Kitty graphics
+	if err := kittyRenderer.ClearMinimap(); err != nil {
+		return fmt.Errorf("clearing minimap: %w", err)
+	}
 	if err := kittyRenderer.Clear(); err != nil {
 		return fmt.Errorf("clearing renderer: %w", err)
 	}

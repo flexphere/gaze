@@ -28,11 +28,19 @@ type ViewportConfig struct {
 	MaxZoom  float64
 }
 
+// MinimapConfig holds minimap display settings.
+type MinimapConfig struct {
+	Enabled     bool
+	Size        float64 // fraction of terminal width (0.0–1.0)
+	BorderColor string  // hex color for indicator border (e.g. "#FFFFFF")
+}
+
 // Config is the complete application configuration.
 type Config struct {
 	KeyBindings KeyBindingConfig
 	Mouse       MouseConfig
 	Viewport    ViewportConfig
+	Minimap     MinimapConfig
 }
 
 // DefaultConfig returns the default configuration.
@@ -59,6 +67,11 @@ func DefaultConfig() *Config {
 			PanStep:  0.05,
 			MinZoom:  0.1,
 			MaxZoom:  20.0,
+		},
+		Minimap: MinimapConfig{
+			Enabled:     true,
+			Size:        0.2,
+			BorderColor: "#FFFFFF",
 		},
 	}
 }
