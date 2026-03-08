@@ -21,6 +21,7 @@ type mockRenderer struct {
 	minimapDisplayErr error
 	minimapDisplayCnt int
 	minimapClearCnt   int
+	minimapClearErr   error
 }
 
 func (m *mockRenderer) Upload(_ *domain.ImageEntity) error {
@@ -49,7 +50,7 @@ func (m *mockRenderer) DisplayMinimap(_ *domain.Viewport, _, _ int, _ string) (s
 
 func (m *mockRenderer) ClearMinimap() error {
 	m.minimapClearCnt++
-	return nil
+	return m.minimapClearErr
 }
 
 func TestRenderFrameUseCase_SetMinimapEnabled(t *testing.T) {
@@ -391,6 +392,39 @@ func TestRenderFrameUseCase_Execute_MinimapDisplayError(t *testing.T) {
 	_, err := uc.Execute(img, vp)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapClearError(t *testing.T) {
+	renderer := &mockRenderer{
+		displayOut:        "main",
+		minimapDisplayOut: "mm",
+		minimapClearErr:   errors.New("clear failed"),
+	}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	// First frame — minimap shown
+	_, err := uc.Execute(img, vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Zoom out — triggers ClearMinimap which returns error
+	vp.ZoomLevel = 1.0
+	_, err = uc.Execute(img, vp)
+	if err == nil {
+		t.Fatal("expected error from ClearMinimap, got nil")
 	}
 }
 
