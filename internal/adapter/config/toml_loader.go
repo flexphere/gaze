@@ -159,7 +159,10 @@ func mergeConfig(cfg *domain.Config, tc *tomlConfig) {
 		cfg.Minimap.Enabled = *tc.Minimap.Enabled
 	}
 	if tc.Minimap.Size != nil {
-		cfg.Minimap.Size = *tc.Minimap.Size
+		size := *tc.Minimap.Size
+		if size > 0 && size <= 1 {
+			cfg.Minimap.Size = size
+		}
 	}
 	if tc.Minimap.BorderColor != nil {
 		cfg.Minimap.BorderColor = *tc.Minimap.BorderColor

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -74,13 +75,14 @@ func runViewer(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("running viewer: %w", err)
 	}
 
-	// Clean up Kitty graphics
+	// Clean up Kitty graphics — always attempt both cleanups
+	var errs []error
 	if err := kittyRenderer.ClearMinimap(); err != nil {
-		return fmt.Errorf("clearing minimap: %w", err)
+		errs = append(errs, fmt.Errorf("clearing minimap: %w", err))
 	}
 	if err := kittyRenderer.Clear(); err != nil {
-		return fmt.Errorf("clearing renderer: %w", err)
+		errs = append(errs, fmt.Errorf("clearing renderer: %w", err))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

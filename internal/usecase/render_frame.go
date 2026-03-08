@@ -12,11 +12,17 @@ type RenderFrameUseCase interface {
 	Execute(img *domain.ImageEntity, vp *domain.Viewport) (string, error)
 }
 
+const (
+	minMinimapCols = 5
+	minMinimapRows = 3
+)
+
 type renderFrameUseCase struct {
 	renderer        RendererPort
 	minimapCfg      domain.MinimapConfig
 	uploaded        bool
 	minimapUploaded bool
+	minimapShown    bool
 }
 
 // NewRenderFrameUseCase creates a new RenderFrameUseCase.
@@ -38,9 +44,11 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 	}
 
 	// Append minimap when zoomed in and enabled
+	shouldShowMinimap := false
 	if uc.minimapCfg.Enabled && vp.IsZoomed() {
 		minimapCols, minimapRows := uc.minimapSize(vp)
-		if minimapCols >= 5 && minimapRows >= 3 {
+		if minimapCols >= minMinimapCols && minimapRows >= minMinimapRows {
+			shouldShowMinimap = true
 			if !uc.minimapUploaded {
 				if err := uc.renderer.UploadMinimap(img, minimapCols, minimapRows); err != nil {
 					return "", fmt.Errorf("uploading minimap: %w", err)
@@ -55,6 +63,14 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 			output += mmOutput
 		}
 	}
+
+	// Clear minimap when transitioning from shown to hidden
+	if uc.minimapShown && !shouldShowMinimap {
+		if err := uc.renderer.ClearMinimap(); err != nil {
+			return "", fmt.Errorf("clearing minimap: %w", err)
+		}
+	}
+	uc.minimapShown = shouldShowMinimap
 
 	return output, nil
 }
