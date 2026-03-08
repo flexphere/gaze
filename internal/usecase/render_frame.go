@@ -25,6 +25,7 @@ type renderFrameUseCase struct {
 	uploaded        bool
 	minimapUploaded bool
 	minimapShown    bool
+	lastImage       *domain.ImageEntity
 }
 
 // NewRenderFrameUseCase creates a new RenderFrameUseCase.
@@ -33,11 +34,13 @@ func NewRenderFrameUseCase(renderer RendererPort, minimapCfg domain.MinimapConfi
 }
 
 func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewport) (string, error) {
-	if !uc.uploaded {
+	if !uc.uploaded || img != uc.lastImage {
 		if err := uc.renderer.Upload(img); err != nil {
 			return "", fmt.Errorf("uploading image: %w", err)
 		}
 		uc.uploaded = true
+		uc.lastImage = img
+		uc.minimapUploaded = false
 	}
 
 	output, err := uc.renderer.Display(vp)

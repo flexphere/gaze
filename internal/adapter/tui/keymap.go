@@ -17,6 +17,7 @@ type KeyMap struct {
 	ResetView     key.Binding
 	FitToWindow   key.Binding
 	ToggleMinimap key.Binding
+	PlayPause     key.Binding
 	Quit          key.Binding
 }
 
@@ -58,6 +59,10 @@ func NewKeyMap(cfg domain.KeyBindingConfig) KeyMap {
 		ToggleMinimap: key.NewBinding(
 			key.WithKeys(cfg.ToggleMinimap...),
 			key.WithHelp("m", "toggle minimap"),
+		),
+		PlayPause: key.NewBinding(
+			key.WithKeys(cfg.PlayPause...),
+			key.WithHelp("space", "play/pause"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys(cfg.Quit...),

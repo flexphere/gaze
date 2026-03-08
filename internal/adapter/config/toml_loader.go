@@ -28,6 +28,7 @@ type tomlKeyBindings struct {
 	ResetView     []string `toml:"reset_view"`
 	FitToWindow   []string `toml:"fit_to_window"`
 	ToggleMinimap []string `toml:"toggle_minimap"`
+	PlayPause     []string `toml:"play_pause"`
 	Quit          []string `toml:"quit"`
 }
 
@@ -128,6 +129,9 @@ func mergeConfig(cfg *domain.Config, tc *tomlConfig) {
 	}
 	if len(tc.KeyBindings.ToggleMinimap) > 0 {
 		cfg.KeyBindings.ToggleMinimap = tc.KeyBindings.ToggleMinimap
+	}
+	if len(tc.KeyBindings.PlayPause) > 0 {
+		cfg.KeyBindings.PlayPause = tc.KeyBindings.PlayPause
 	}
 	if len(tc.KeyBindings.Quit) > 0 {
 		cfg.KeyBindings.Quit = tc.KeyBindings.Quit

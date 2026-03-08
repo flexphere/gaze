@@ -1,12 +1,25 @@
 package tui
 
 import (
+	"errors"
+	"io"
+	"time"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/flexphere/gaze/internal/domain"
 )
+
+const seekStep = 5 * time.Second
+
+type videoTickMsg struct{}
 
 // Init returns the initial command.
 func (m Model) Init() tea.Cmd {
+	if m.isVideoMode() && m.playing {
+		return m.tickCmd()
+	}
 	return nil
 }
 
@@ -23,16 +36,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
-		return m.handleMouseMsg(msg)
+		if !m.isVideoMode() {
+			return m.handleMouseMsg(msg)
+		}
+		return m, nil
+
+	case videoTickMsg:
+		return m.handleVideoTick()
 	}
 
 	return m, nil
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keymap.Quit):
+	if key.Matches(msg, m.keymap.Quit) {
 		return m, tea.Quit
+	}
+
+	if m.isVideoMode() {
+		return m.handleVideoKeyMsg(msg)
+	}
+	return m.handleImageKeyMsg(msg)
+}
+
+func (m Model) handleImageKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
 	case key.Matches(msg, m.keymap.ZoomIn):
 		m.vpCtrl.ZoomIn(m.viewport)
 	case key.Matches(msg, m.keymap.ZoomOut):
@@ -57,6 +85,86 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m.updateFrame()
 	return m, nil
+}
+
+func (m Model) handleVideoKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keymap.PlayPause):
+		m.playing = !m.playing
+		if m.playing {
+			return m, m.tickCmd()
+		}
+		return m, nil
+
+	case key.Matches(msg, m.keymap.PanLeft):
+		return m.seekVideo(-seekStep)
+
+	case key.Matches(msg, m.keymap.PanRight):
+		return m.seekVideo(seekStep)
+	}
+
+	return m, nil
+}
+
+func (m Model) seekVideo(delta time.Duration) (tea.Model, tea.Cmd) {
+	newPos := m.position + delta
+	if newPos < 0 {
+		newPos = 0
+	}
+	if m.videoInfo.Duration > 0 && newPos > m.videoInfo.Duration {
+		newPos = m.videoInfo.Duration
+	}
+
+	if err := m.videoDecoder.Seek(newPos); err != nil {
+		m.err = err
+		return m, nil
+	}
+	m.position = newPos
+
+	frame, err := m.videoDecoder.NextFrame()
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			m.err = err
+		}
+		m.playing = false
+		return m, nil
+	}
+
+	m.image = domain.NewImageEntity(frame, m.image.Path, "video")
+	m.updateFrame()
+
+	if m.playing {
+		return m, m.tickCmd()
+	}
+	return m, nil
+}
+
+func (m Model) handleVideoTick() (tea.Model, tea.Cmd) {
+	if !m.playing || m.videoDecoder == nil {
+		return m, nil
+	}
+
+	frame, err := m.videoDecoder.NextFrame()
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			m.err = err
+		}
+		m.playing = false
+		return m, nil
+	}
+
+	m.image = domain.NewImageEntity(frame, m.image.Path, "video")
+	m.position += time.Duration(float64(time.Second) / m.videoInfo.FrameRate)
+	m.updateFrame()
+
+	return m, m.tickCmd()
+}
+
+func (m Model) tickCmd() tea.Cmd {
+	interval := time.Duration(float64(time.Second) / m.videoInfo.FrameRate)
+	return tea.Tick(interval, func(time.Time) tea.Msg {
+		return videoTickMsg{}
+	})
 }
 
 func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
