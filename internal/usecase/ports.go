@@ -1,6 +1,11 @@
 package usecase
 
-import "github.com/flexphere/gaze/internal/domain"
+import (
+	"image"
+	"time"
+
+	"github.com/flexphere/gaze/internal/domain"
+)
 
 // ImageLoaderPort loads and decodes an image from a path.
 type ImageLoaderPort interface {
@@ -18,6 +23,14 @@ type RendererPort interface {
 	UploadMinimap(img *domain.ImageEntity, cols, rows int) error
 	DisplayMinimap(vp *domain.Viewport, cols, rows int, borderColor string) (string, error)
 	ClearMinimap() error
+}
+
+// VideoDecoderPort decodes video frames sequentially.
+type VideoDecoderPort interface {
+	Open(path string) (*domain.VideoInfo, error)
+	NextFrame() (image.Image, error) // returns io.EOF at end of video
+	Seek(pos time.Duration) error
+	Close() error
 }
 
 // ConfigLoaderPort reads configuration from persistent storage.
