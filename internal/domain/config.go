@@ -11,6 +11,7 @@ type KeyBindingConfig struct {
 	ResetView     []string
 	FitToWindow   []string
 	ToggleMinimap []string
+	PlayPause     []string
 	Quit          []string
 }
 
@@ -57,6 +58,7 @@ func DefaultConfig() *Config {
 			ResetView:     []string{"0", "r"},
 			FitToWindow:   []string{"f"},
 			ToggleMinimap: []string{"m"},
+			PlayPause:     []string{" "},
 			Quit:          []string{"q", "ctrl+c", "esc"},
 		},
 		Mouse: MouseConfig{
