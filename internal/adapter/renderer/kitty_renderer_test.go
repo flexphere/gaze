@@ -123,6 +123,7 @@ func setupMinimapRenderer() *KittyRenderer {
 	r.minimapW = 128
 	r.minimapH = 96
 	r.minimapBase = image.NewRGBA(image.Rect(0, 0, 128, 96))
+	r.minimapFrame = image.NewRGBA(image.Rect(0, 0, 128, 96))
 	return r
 }
 

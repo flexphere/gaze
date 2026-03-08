@@ -139,3 +139,69 @@ func TestTOMLLoader_Load_EmptyPath(t *testing.T) {
 		t.Fatal("config should not be nil")
 	}
 }
+
+func TestTOMLLoader_Load_MinimapConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := `
+[minimap]
+enabled = false
+size = 0.3
+border_color = "#00FF00"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	loader := NewTOMLLoaderWithPath(path)
+	cfg, err := loader.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Minimap.Enabled {
+		t.Error("Minimap.Enabled should be false")
+	}
+	if cfg.Minimap.Size != 0.3 {
+		t.Errorf("Minimap.Size = %f, want 0.3", cfg.Minimap.Size)
+	}
+	if cfg.Minimap.BorderColor != "#00FF00" {
+		t.Errorf("Minimap.BorderColor = %q, want %q", cfg.Minimap.BorderColor, "#00FF00")
+	}
+}
+
+func TestTOMLLoader_Load_MinimapSizeValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		size     string
+		wantSize float64
+	}{
+		{"valid", "0.3", 0.3},
+		{"zero ignored", "0.0", 0.2},      // default
+		{"negative ignored", "-0.5", 0.2}, // default
+		{"too large ignored", "1.5", 0.2}, // default
+		{"max valid", "1.0", 1.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.toml")
+
+			content := "[minimap]\nsize = " + tt.size + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("writing config: %v", err)
+			}
+
+			loader := NewTOMLLoaderWithPath(path)
+			cfg, err := loader.Load()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.Minimap.Size != tt.wantSize {
+				t.Errorf("Minimap.Size = %f, want %f", cfg.Minimap.Size, tt.wantSize)
+			}
+		})
+	}
+}
