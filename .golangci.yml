@@ -12,12 +12,16 @@ formatters:
 linters:
   enable:
     - errcheck
+    - errorlint
+    - gocritic
     - gosec
-    - staticcheck
     - govet
     - ineffassign
-    - unused
     - misspell
+    - nilerr
+    - staticcheck
+    - unconvert
+    - unused
   settings:
     errcheck:
       check-type-assertions: true
