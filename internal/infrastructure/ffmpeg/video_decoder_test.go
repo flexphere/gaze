@@ -146,6 +146,22 @@ func TestVideoDecoder_Open_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestVideoDecoder_NextFrame_BeforeOpen(t *testing.T) {
+	decoder := NewVideoDecoder()
+	_, err := decoder.NextFrame()
+	if err == nil {
+		t.Fatal("expected error calling NextFrame before Open")
+	}
+}
+
+func TestVideoDecoder_Seek_BeforeOpen(t *testing.T) {
+	decoder := NewVideoDecoder()
+	err := decoder.Seek(0)
+	if err == nil {
+		t.Fatal("expected error calling Seek before Open")
+	}
+}
+
 func TestProbeVideo(t *testing.T) {
 	skipIfFFmpegUnavailable(t)
 

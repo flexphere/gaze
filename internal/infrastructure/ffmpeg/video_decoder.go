@@ -28,7 +28,10 @@ func NewVideoDecoder() *VideoDecoder {
 }
 
 // Open probes the video file and starts the ffmpeg decode process.
+// If already open, the previous process is stopped first.
 func (d *VideoDecoder) Open(path string) (*domain.VideoInfo, error) {
+	d.stopFFmpeg()
+
 	info, err := probeVideo(path)
 	if err != nil {
 		return nil, fmt.Errorf("probing video: %w", err)
@@ -38,6 +41,8 @@ func (d *VideoDecoder) Open(path string) (*domain.VideoInfo, error) {
 	d.path = path
 
 	if err := d.startFFmpeg(0); err != nil {
+		d.info = nil
+		d.path = ""
 		return nil, fmt.Errorf("starting decoder: %w", err)
 	}
 
@@ -47,12 +52,20 @@ func (d *VideoDecoder) Open(path string) (*domain.VideoInfo, error) {
 // NextFrame reads the next video frame as an RGBA image.
 // Returns io.EOF when the video ends.
 func (d *VideoDecoder) NextFrame() (image.Image, error) {
+	if d.info == nil || d.stdout == nil {
+		return nil, fmt.Errorf("decoder not open")
+	}
+
 	frameSize := d.info.Width * d.info.Height * 4
 	pix := make([]byte, frameSize)
 
-	if _, err := io.ReadFull(d.stdout, pix); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	n, err := io.ReadFull(d.stdout, pix)
+	if err != nil {
+		if errors.Is(err, io.EOF) && n == 0 {
 			return nil, io.EOF
+		}
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, fmt.Errorf("reading frame: unexpected EOF (got %d/%d bytes)", n, frameSize)
 		}
 		return nil, fmt.Errorf("reading frame: %w", err)
 	}
@@ -66,6 +79,9 @@ func (d *VideoDecoder) NextFrame() (image.Image, error) {
 
 // Seek restarts the decoder at the given position.
 func (d *VideoDecoder) Seek(pos time.Duration) error {
+	if d.info == nil {
+		return fmt.Errorf("decoder not open")
+	}
 	d.stopFFmpeg()
 	if err := d.startFFmpeg(pos); err != nil {
 		return fmt.Errorf("seeking to %v: %w", pos, err)
