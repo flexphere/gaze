@@ -12,11 +12,20 @@ import (
 )
 
 type mockRenderFrame struct {
-	output string
+	output         string
+	minimapEnabled bool
 }
 
 func (m *mockRenderFrame) Execute(_ *domain.ImageEntity, _ *domain.Viewport) (string, error) {
 	return m.output, nil
+}
+
+func (m *mockRenderFrame) SetMinimapEnabled(enabled bool) {
+	m.minimapEnabled = enabled
+}
+
+func (m *mockRenderFrame) MinimapEnabled() bool {
+	return m.minimapEnabled
 }
 
 func newTestModel() Model {
@@ -28,7 +37,7 @@ func newTestModel() Model {
 	)
 
 	vpCtrl := usecase.NewViewportControlUseCase()
-	renderer := &mockRenderFrame{output: "rendered"}
+	renderer := &mockRenderFrame{output: "rendered", minimapEnabled: cfg.Minimap.Enabled}
 
 	m := NewModel(img, cfg, vpCtrl, renderer)
 	// Simulate window size message
@@ -191,6 +200,34 @@ func TestUpdate_MouseDrag(t *testing.T) {
 
 	if um.dragging {
 		t.Error("should not be dragging after release")
+	}
+}
+
+func TestUpdate_ToggleMinimap(t *testing.T) {
+	m := newTestModel()
+	renderer := m.renderFrame.(*mockRenderFrame)
+
+	if !renderer.minimapEnabled {
+		t.Fatal("minimap should be enabled by default")
+	}
+
+	// Toggle off
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}}
+	updated, _ := m.Update(msg)
+	um := updated.(Model)
+	renderer = um.renderFrame.(*mockRenderFrame)
+
+	if renderer.minimapEnabled {
+		t.Error("minimap should be disabled after toggle")
+	}
+
+	// Toggle on
+	updated, _ = um.Update(msg)
+	um = updated.(Model)
+	renderer = um.renderFrame.(*mockRenderFrame)
+
+	if !renderer.minimapEnabled {
+		t.Error("minimap should be re-enabled after second toggle")
 	}
 }
 

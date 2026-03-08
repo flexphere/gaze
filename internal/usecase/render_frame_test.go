@@ -52,6 +52,69 @@ func (m *mockRenderer) ClearMinimap() error {
 	return nil
 }
 
+func TestRenderFrameUseCase_SetMinimapEnabled(t *testing.T) {
+	renderer := &mockRenderer{displayOut: "main"}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	if !uc.MinimapEnabled() {
+		t.Error("minimap should be enabled initially")
+	}
+
+	uc.SetMinimapEnabled(false)
+	if uc.MinimapEnabled() {
+		t.Error("minimap should be disabled after SetMinimapEnabled(false)")
+	}
+
+	uc.SetMinimapEnabled(true)
+	if !uc.MinimapEnabled() {
+		t.Error("minimap should be re-enabled after SetMinimapEnabled(true)")
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapToggleOff(t *testing.T) {
+	renderer := &mockRenderer{
+		displayOut:        "main",
+		minimapDisplayOut: "mm",
+	}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	// First frame — minimap shown
+	got, err := uc.Execute(img, vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "mainmm" {
+		t.Errorf("output = %q, want %q", got, "mainmm")
+	}
+
+	// Toggle off
+	uc.SetMinimapEnabled(false)
+
+	// Next frame — minimap hidden, clear called
+	got, err = uc.Execute(img, vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("output = %q, want %q (minimap toggled off)", got, "main")
+	}
+	if renderer.minimapClearCnt != 1 {
+		t.Errorf("minimap clear should be called once, got %d", renderer.minimapClearCnt)
+	}
+}
+
 func TestRenderFrameUseCase_Execute_Success(t *testing.T) {
 	renderer := &mockRenderer{displayOut: "\x1b[image data]"}
 	uc := NewRenderFrameUseCase(renderer, domain.MinimapConfig{})
