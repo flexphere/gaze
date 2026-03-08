@@ -10,6 +10,8 @@ import (
 // RenderFrameUseCase produces a renderable string for the current viewport.
 type RenderFrameUseCase interface {
 	Execute(img *domain.ImageEntity, vp *domain.Viewport) (string, error)
+	SetMinimapEnabled(enabled bool)
+	MinimapEnabled() bool
 }
 
 const (
@@ -73,6 +75,14 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 	uc.minimapShown = shouldShowMinimap
 
 	return output, nil
+}
+
+func (uc *renderFrameUseCase) SetMinimapEnabled(enabled bool) {
+	uc.minimapCfg.Enabled = enabled
+}
+
+func (uc *renderFrameUseCase) MinimapEnabled() bool {
+	return uc.minimapCfg.Enabled
 }
 
 // minimapSize calculates the minimap display size in terminal cells.
