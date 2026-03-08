@@ -15,6 +15,7 @@ type tomlConfig struct {
 	KeyBindings tomlKeyBindings `toml:"keybindings"`
 	Mouse       tomlMouse       `toml:"mouse"`
 	Viewport    tomlViewport    `toml:"viewport"`
+	Minimap     tomlMinimap     `toml:"minimap"`
 }
 
 type tomlKeyBindings struct {
@@ -40,6 +41,12 @@ type tomlViewport struct {
 	PanStep  *float64 `toml:"pan_step"`
 	MinZoom  *float64 `toml:"min_zoom"`
 	MaxZoom  *float64 `toml:"max_zoom"`
+}
+
+type tomlMinimap struct {
+	Enabled     *bool    `toml:"enabled"`
+	Size        *float64 `toml:"size"`
+	BorderColor *string  `toml:"border_color"`
 }
 
 // TOMLLoader loads configuration from a TOML file.
@@ -145,5 +152,16 @@ func mergeConfig(cfg *domain.Config, tc *tomlConfig) {
 	}
 	if tc.Viewport.MaxZoom != nil {
 		cfg.Viewport.MaxZoom = *tc.Viewport.MaxZoom
+	}
+
+	// Minimap: override only if explicitly set
+	if tc.Minimap.Enabled != nil {
+		cfg.Minimap.Enabled = *tc.Minimap.Enabled
+	}
+	if tc.Minimap.Size != nil {
+		cfg.Minimap.Size = *tc.Minimap.Size
+	}
+	if tc.Minimap.BorderColor != nil {
+		cfg.Minimap.BorderColor = *tc.Minimap.BorderColor
 	}
 }

@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/flexphere/gaze/internal/domain"
 )
@@ -12,13 +13,15 @@ type RenderFrameUseCase interface {
 }
 
 type renderFrameUseCase struct {
-	renderer RendererPort
-	uploaded bool
+	renderer        RendererPort
+	minimapCfg      domain.MinimapConfig
+	uploaded        bool
+	minimapUploaded bool
 }
 
 // NewRenderFrameUseCase creates a new RenderFrameUseCase.
-func NewRenderFrameUseCase(renderer RendererPort) RenderFrameUseCase {
-	return &renderFrameUseCase{renderer: renderer}
+func NewRenderFrameUseCase(renderer RendererPort, minimapCfg domain.MinimapConfig) RenderFrameUseCase {
+	return &renderFrameUseCase{renderer: renderer, minimapCfg: minimapCfg}
 }
 
 func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewport) (string, error) {
@@ -34,5 +37,41 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 		return "", fmt.Errorf("displaying frame: %w", err)
 	}
 
+	// Append minimap when zoomed in and enabled
+	if uc.minimapCfg.Enabled && vp.IsZoomed() {
+		minimapCols, minimapRows := uc.minimapSize(vp)
+		if minimapCols >= 5 && minimapRows >= 3 {
+			if !uc.minimapUploaded {
+				if err := uc.renderer.UploadMinimap(img, minimapCols, minimapRows); err != nil {
+					return "", fmt.Errorf("uploading minimap: %w", err)
+				}
+				uc.minimapUploaded = true
+			}
+
+			mmOutput, err := uc.renderer.DisplayMinimap(vp, minimapCols, minimapRows, uc.minimapCfg.BorderColor)
+			if err != nil {
+				return "", fmt.Errorf("displaying minimap: %w", err)
+			}
+			output += mmOutput
+		}
+	}
+
 	return output, nil
+}
+
+// minimapSize calculates the minimap display size in terminal cells.
+func (uc *renderFrameUseCase) minimapSize(vp *domain.Viewport) (cols, rows int) {
+	cols = int(math.Round(float64(vp.TermWidth) * uc.minimapCfg.Size))
+	if cols < 1 {
+		cols = 1
+	}
+
+	// Preserve image aspect ratio (terminal cells are ~2:1 height:width)
+	imgAspect := float64(vp.ImgWidth) / float64(vp.ImgHeight)
+	rows = int(math.Round(float64(cols) / imgAspect / 2))
+	if rows < 1 {
+		rows = 1
+	}
+
+	return cols, rows
 }

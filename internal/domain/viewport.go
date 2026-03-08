@@ -180,6 +180,11 @@ func (v *Viewport) ZoomPercentage() int {
 	return int(math.Round(v.ZoomLevel * 100))
 }
 
+// IsZoomed returns true when the viewport is zoomed in beyond fit-to-window.
+func (v *Viewport) IsZoomed() bool {
+	return v.ZoomLevel > 1.001
+}
+
 func clampFloat(val, min, max float64) float64 {
 	if val < min {
 		return min
