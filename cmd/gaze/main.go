@@ -11,6 +11,7 @@ import (
 	"github.com/flexphere/gaze/internal/adapter/config"
 	"github.com/flexphere/gaze/internal/adapter/renderer"
 	"github.com/flexphere/gaze/internal/adapter/tui"
+	"github.com/flexphere/gaze/internal/infrastructure/ffmpeg"
 	"github.com/flexphere/gaze/internal/infrastructure/filesystem"
 	"github.com/flexphere/gaze/internal/usecase"
 )
@@ -48,8 +49,14 @@ func runViewer(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	// Load image
-	imageLoader := filesystem.NewImageLoader()
+	// Load image — use ffmpeg for extended format support when available
+	var imageLoader usecase.ImageLoaderPort
+	stdLoader := filesystem.NewImageLoader()
+	if ffmpeg.Available() {
+		imageLoader = ffmpeg.NewImageLoader(stdLoader)
+	} else {
+		imageLoader = stdLoader
+	}
 	loadImageUC := usecase.NewLoadImageUseCase(imageLoader)
 	img, err := loadImageUC.Execute(imagePath)
 	if err != nil {
