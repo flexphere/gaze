@@ -14,6 +14,12 @@ type mockRenderer struct {
 	displayErr error
 	uploadCnt  int
 	displayCnt int
+
+	minimapUploadCnt  int
+	minimapUploadErr  error
+	minimapDisplayOut string
+	minimapDisplayErr error
+	minimapDisplayCnt int
 }
 
 func (m *mockRenderer) Upload(_ *domain.ImageEntity) error {
@@ -30,9 +36,23 @@ func (m *mockRenderer) Clear() error {
 	return nil
 }
 
+func (m *mockRenderer) UploadMinimap(_ *domain.ImageEntity, _, _ int) error {
+	m.minimapUploadCnt++
+	return m.minimapUploadErr
+}
+
+func (m *mockRenderer) DisplayMinimap(_ *domain.Viewport, _, _ int, _ string) (string, error) {
+	m.minimapDisplayCnt++
+	return m.minimapDisplayOut, m.minimapDisplayErr
+}
+
+func (m *mockRenderer) ClearMinimap() error {
+	return nil
+}
+
 func TestRenderFrameUseCase_Execute_Success(t *testing.T) {
 	renderer := &mockRenderer{displayOut: "\x1b[image data]"}
-	uc := NewRenderFrameUseCase(renderer)
+	uc := NewRenderFrameUseCase(renderer, domain.MinimapConfig{})
 
 	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 100, 100)), "test.png", "png")
 	vp := domain.NewViewport(domain.ViewportConfig{
@@ -57,7 +77,7 @@ func TestRenderFrameUseCase_Execute_Success(t *testing.T) {
 
 func TestRenderFrameUseCase_Execute_UploadsOnlyOnce(t *testing.T) {
 	renderer := &mockRenderer{displayOut: "frame"}
-	uc := NewRenderFrameUseCase(renderer)
+	uc := NewRenderFrameUseCase(renderer, domain.MinimapConfig{})
 
 	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 100, 100)), "test.png", "png")
 	vp := domain.NewViewport(domain.ViewportConfig{
@@ -85,7 +105,7 @@ func TestRenderFrameUseCase_Execute_UploadsOnlyOnce(t *testing.T) {
 
 func TestRenderFrameUseCase_Execute_UploadError(t *testing.T) {
 	renderer := &mockRenderer{uploadErr: errors.New("upload failed")}
-	uc := NewRenderFrameUseCase(renderer)
+	uc := NewRenderFrameUseCase(renderer, domain.MinimapConfig{})
 
 	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 100, 100)), "test.png", "png")
 	vp := domain.NewViewport(domain.ViewportConfig{
@@ -100,12 +120,208 @@ func TestRenderFrameUseCase_Execute_UploadError(t *testing.T) {
 
 func TestRenderFrameUseCase_Execute_DisplayError(t *testing.T) {
 	renderer := &mockRenderer{displayErr: errors.New("display failed")}
-	uc := NewRenderFrameUseCase(renderer)
+	uc := NewRenderFrameUseCase(renderer, domain.MinimapConfig{})
 
 	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 100, 100)), "test.png", "png")
 	vp := domain.NewViewport(domain.ViewportConfig{
 		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
 	})
+
+	_, err := uc.Execute(img, vp)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapEnabled(t *testing.T) {
+	renderer := &mockRenderer{
+		displayOut:        "main",
+		minimapDisplayOut: "minimap",
+	}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0 // IsZoomed() = true
+
+	got, err := uc.Execute(img, vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got != "mainminimap" {
+		t.Errorf("output = %q, want %q", got, "mainminimap")
+	}
+	if renderer.minimapUploadCnt != 1 {
+		t.Errorf("minimap upload called %d times, want 1", renderer.minimapUploadCnt)
+	}
+	if renderer.minimapDisplayCnt != 1 {
+		t.Errorf("minimap display called %d times, want 1", renderer.minimapDisplayCnt)
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapDisabledWhenNotZoomed(t *testing.T) {
+	renderer := &mockRenderer{displayOut: "main"}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 1.0 // IsZoomed() = false
+
+	got, err := uc.Execute(img, vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got != "main" {
+		t.Errorf("output = %q, want %q (no minimap when not zoomed)", got, "main")
+	}
+	if renderer.minimapUploadCnt != 0 {
+		t.Errorf("minimap upload should not be called when not zoomed, got %d", renderer.minimapUploadCnt)
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapConfigDisabled(t *testing.T) {
+	renderer := &mockRenderer{displayOut: "main"}
+	cfg := domain.MinimapConfig{Enabled: false, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	got, err := uc.Execute(img, vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got != "main" {
+		t.Errorf("output = %q, want %q (minimap disabled)", got, "main")
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapUploadsOnlyOnce(t *testing.T) {
+	renderer := &mockRenderer{
+		displayOut:        "main",
+		minimapDisplayOut: "mm",
+	}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	for range 5 {
+		_, err := uc.Execute(img, vp)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	if renderer.minimapUploadCnt != 1 {
+		t.Errorf("minimap upload called %d times, want 1", renderer.minimapUploadCnt)
+	}
+	if renderer.minimapDisplayCnt != 5 {
+		t.Errorf("minimap display called %d times, want 5", renderer.minimapDisplayCnt)
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapSkippedForSmallTerminal(t *testing.T) {
+	renderer := &mockRenderer{displayOut: "main"}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 20 // 20 * 0.2 = 4 cols, below minimum 5
+	vp.TermHeight = 10
+	vp.ZoomLevel = 2.0
+
+	got, err := uc.Execute(img, vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got != "main" {
+		t.Errorf("output = %q, want %q (minimap too small)", got, "main")
+	}
+	if renderer.minimapUploadCnt != 0 {
+		t.Errorf("minimap upload should not be called for small terminal, got %d", renderer.minimapUploadCnt)
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapUploadError(t *testing.T) {
+	renderer := &mockRenderer{
+		displayOut:       "main",
+		minimapUploadErr: errors.New("minimap upload failed"),
+	}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	_, err := uc.Execute(img, vp)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestRenderFrameUseCase_Execute_MinimapDisplayError(t *testing.T) {
+	renderer := &mockRenderer{
+		displayOut:        "main",
+		minimapDisplayErr: errors.New("minimap display failed"),
+	}
+	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}
+	uc := NewRenderFrameUseCase(renderer, cfg)
+
+	img := domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 800, 600)), "test.png", "png")
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
 
 	_, err := uc.Execute(img, vp)
 	if err == nil {
