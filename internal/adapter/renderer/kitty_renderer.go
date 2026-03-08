@@ -20,13 +20,14 @@ var imageIDCounter uint32
 
 // KittyRenderer implements RendererPort using the Kitty Graphics Protocol.
 type KittyRenderer struct {
-	imageID     uint32
-	imgW        int
-	imgH        int
-	minimapID   uint32
-	minimapBase *image.RGBA // downscaled thumbnail (reused each frame)
-	minimapW    int         // minimap image width in pixels
-	minimapH    int         // minimap image height in pixels
+	imageID      uint32
+	imgW         int
+	imgH         int
+	minimapID    uint32
+	minimapBase  *image.RGBA // downscaled thumbnail (reused each frame)
+	minimapFrame *image.RGBA // reusable work buffer for compositing
+	minimapW     int         // minimap image width in pixels
+	minimapH     int         // minimap image height in pixels
 }
 
 // NewKittyRenderer creates a new KittyRenderer.
@@ -107,6 +108,10 @@ func (r *KittyRenderer) Clear() error {
 // The base is kept in memory; actual upload happens in DisplayMinimap each frame
 // (with the viewport indicator rectangle drawn on top).
 func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int) error {
+	// Delete existing minimap image from terminal before assigning a new ID
+	if r.minimapID > 0 {
+		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
+	}
 	r.minimapID = atomic.AddUint32(&imageIDCounter, 1)
 
 	// Calculate pixel dimensions for the minimap.
@@ -138,6 +143,9 @@ func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int) e
 	r.minimapBase = image.NewRGBA(image.Rect(0, 0, pixW, pixH))
 	draw.CatmullRom.Scale(r.minimapBase, r.minimapBase.Bounds(), img.Source, img.Source.Bounds(), draw.Over, nil)
 
+	// Allocate reusable work buffer for per-frame compositing
+	r.minimapFrame = image.NewRGBA(image.Rect(0, 0, pixW, pixH))
+
 	return nil
 }
 
@@ -155,10 +163,8 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 		return "", nil
 	}
 
-	// Copy base thumbnail
-	bounds := r.minimapBase.Bounds()
-	frame := image.NewRGBA(bounds)
-	copy(frame.Pix, r.minimapBase.Pix)
+	// Reuse work buffer instead of allocating each frame
+	copy(r.minimapFrame.Pix, r.minimapBase.Pix)
 
 	// Calculate indicator rectangle in pixel coordinates
 	visRect := vp.VisibleRect()
@@ -172,9 +178,24 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	pxRight = clampInt(pxRight, 1, r.minimapW)
 	pxBottom = clampInt(pxBottom, 1, r.minimapH)
 
+	// Ensure the rectangle has at least 1px width/height after clamping
+	if pxRight <= pxLeft {
+		pxRight = pxLeft + 1
+	}
+	if pxBottom <= pxTop {
+		pxBottom = pxTop + 1
+	}
+	// Re-clamp to bounds
+	if pxRight > r.minimapW {
+		pxRight = r.minimapW
+	}
+	if pxBottom > r.minimapH {
+		pxBottom = r.minimapH
+	}
+
 	// Draw indicator rectangle border with configured color and dark outline
 	border := parseHexColor(borderColor)
-	drawRect(frame, pxLeft, pxTop, pxRight, pxBottom, border)
+	drawRect(r.minimapFrame, pxLeft, pxTop, pxRight, pxBottom, border)
 
 	// Build all escape sequences into one string so they are output atomically.
 	// This prevents timing issues between delete/upload and placement.
@@ -184,7 +205,7 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	fmt.Fprintf(&out, "\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
 
 	// 2. Upload new minimap frame
-	uploadSeq, err := buildUploadSequence(r.minimapID, frame)
+	uploadSeq, err := buildUploadSequence(r.minimapID, r.minimapFrame)
 	if err != nil {
 		return "", fmt.Errorf("encoding minimap frame: %w", err)
 	}
@@ -329,33 +350,11 @@ func buildUploadSequence(id uint32, img image.Image) (string, error) {
 
 // uploadImage encodes and transmits an image to the terminal.
 func (r *KittyRenderer) uploadImage(id uint32, img image.Image) error {
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return fmt.Errorf("encoding image to PNG: %w", err)
+	seq, err := buildUploadSequence(id, img)
+	if err != nil {
+		return err
 	}
-
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-
-	const chunkSize = 4096
-	for i := 0; i < len(encoded); i += chunkSize {
-		end := i + chunkSize
-		if end > len(encoded) {
-			end = len(encoded)
-		}
-		chunk := encoded[i:end]
-
-		more := 1
-		if end >= len(encoded) {
-			more = 0
-		}
-
-		if i == 0 {
-			fmt.Printf("\x1b_Gi=%d,f=100,a=t,t=d,m=%d;%s\x1b\\", id, more, chunk)
-		} else {
-			fmt.Printf("\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, chunk)
-		}
-	}
-
+	fmt.Print(seq)
 	return nil
 }
 

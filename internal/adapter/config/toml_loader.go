@@ -19,15 +19,16 @@ type tomlConfig struct {
 }
 
 type tomlKeyBindings struct {
-	PanUp       []string `toml:"pan_up"`
-	PanDown     []string `toml:"pan_down"`
-	PanLeft     []string `toml:"pan_left"`
-	PanRight    []string `toml:"pan_right"`
-	ZoomIn      []string `toml:"zoom_in"`
-	ZoomOut     []string `toml:"zoom_out"`
-	ResetView   []string `toml:"reset_view"`
-	FitToWindow []string `toml:"fit_to_window"`
-	Quit        []string `toml:"quit"`
+	PanUp         []string `toml:"pan_up"`
+	PanDown       []string `toml:"pan_down"`
+	PanLeft       []string `toml:"pan_left"`
+	PanRight      []string `toml:"pan_right"`
+	ZoomIn        []string `toml:"zoom_in"`
+	ZoomOut       []string `toml:"zoom_out"`
+	ResetView     []string `toml:"reset_view"`
+	FitToWindow   []string `toml:"fit_to_window"`
+	ToggleMinimap []string `toml:"toggle_minimap"`
+	Quit          []string `toml:"quit"`
 }
 
 type tomlMouse struct {
@@ -125,6 +126,9 @@ func mergeConfig(cfg *domain.Config, tc *tomlConfig) {
 	if len(tc.KeyBindings.FitToWindow) > 0 {
 		cfg.KeyBindings.FitToWindow = tc.KeyBindings.FitToWindow
 	}
+	if len(tc.KeyBindings.ToggleMinimap) > 0 {
+		cfg.KeyBindings.ToggleMinimap = tc.KeyBindings.ToggleMinimap
+	}
 	if len(tc.KeyBindings.Quit) > 0 {
 		cfg.KeyBindings.Quit = tc.KeyBindings.Quit
 	}
@@ -159,7 +163,10 @@ func mergeConfig(cfg *domain.Config, tc *tomlConfig) {
 		cfg.Minimap.Enabled = *tc.Minimap.Enabled
 	}
 	if tc.Minimap.Size != nil {
-		cfg.Minimap.Size = *tc.Minimap.Size
+		size := *tc.Minimap.Size
+		if size > 0 && size <= 1 {
+			cfg.Minimap.Size = size
+		}
 	}
 	if tc.Minimap.BorderColor != nil {
 		cfg.Minimap.BorderColor = *tc.Minimap.BorderColor

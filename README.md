@@ -63,6 +63,7 @@ gaze image.webp
 | `-` / `_` | Zoom out |
 | `f` | Fit to window |
 | `0` / `r` | Reset view |
+| `m` | Toggle minimap |
 | `q` / `Esc` / `Ctrl+C` | Quit |
 
 ### Mouse
@@ -87,6 +88,7 @@ zoom_in   = ["+", "="]
 zoom_out  = ["-", "_"]
 reset_view = ["0", "r"]
 fit_to_window = ["f"]
+toggle_minimap = ["m"]
 quit      = ["q", "ctrl+c", "esc"]
 
 [mouse]
@@ -97,6 +99,11 @@ scroll_sensitivity = 0.15
 [viewport]
 zoom_step = 0.1
 pan_step  = 0.05
+
+[minimap]
+enabled = true
+size = 0.2
+border_color = "#FFFFFF"
 ```
 
 See [docs/configuration.md](docs/configuration.md) for full details.

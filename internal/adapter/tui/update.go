@@ -49,6 +49,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vpCtrl.ResetView(m.viewport)
 	case key.Matches(msg, m.keymap.FitToWindow):
 		m.vpCtrl.FitToWindow(m.viewport)
+	case key.Matches(msg, m.keymap.ToggleMinimap):
+		m.renderFrame.SetMinimapEnabled(!m.renderFrame.MinimapEnabled())
 	default:
 		return m, nil
 	}
