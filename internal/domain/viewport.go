@@ -77,8 +77,8 @@ func (v *Viewport) SetCellAspectRatio(ratio float64) {
 	v.CellAspectRatio = clampFloat(ratio, minCellAspectRatio, maxCellAspectRatio)
 }
 
-// cellAspect returns the effective cell aspect ratio, defaulting to 2.0 if unset.
-func (v *Viewport) cellAspect() float64 {
+// CellAspect returns the effective cell aspect ratio, defaulting to 2.0 if unset.
+func (v *Viewport) CellAspect() float64 {
 	if v.CellAspectRatio <= 0 {
 		return defaultCellAspectRatio
 	}
@@ -103,7 +103,7 @@ func (v *Viewport) VisibleHeight() float64 {
 	vw := v.VisibleWidth()
 	// termPixelHeight / termPixelWidth = (TermHeight * cellH) / (TermWidth * cellW)
 	//                                  = (TermHeight * cellAspect) / TermWidth
-	return vw * float64(v.TermHeight) * v.cellAspect() / float64(v.TermWidth)
+	return vw * float64(v.TermHeight) * v.CellAspect() / float64(v.TermWidth)
 }
 
 // VisibleRect returns the source image rectangle visible in the viewport.
@@ -208,7 +208,7 @@ func (v *Viewport) FitToWindow() {
 	//   VisibleHeight >= ImgHeight => (ImgWidth/z) * (TermHeight*cellAspect/TermWidth) >= ImgHeight
 	//                               => z <= ImgWidth * TermHeight * cellAspect / (TermWidth * ImgHeight)
 	zoomW := 1.0
-	zoomH := float64(v.ImgWidth) * float64(v.TermHeight) * v.cellAspect() / (float64(v.TermWidth) * float64(v.ImgHeight))
+	zoomH := float64(v.ImgWidth) * float64(v.TermHeight) * v.CellAspect() / (float64(v.TermWidth) * float64(v.ImgHeight))
 
 	v.ZoomLevel = math.Min(zoomW, zoomH)
 	if v.ZoomLevel < v.minZoom {
