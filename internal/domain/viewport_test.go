@@ -400,6 +400,26 @@ func TestViewport_FitToWindow_ZeroTerminalSize(t *testing.T) {
 	}
 }
 
+func TestViewport_FitToWindow_ZeroTerminalSize_UpdatesFitZoom(t *testing.T) {
+	vp := setupViewport(1000, 800, 80, 24)
+	vp.FitToWindow()
+	// fitZoom is now < 1.0
+	prevFitZoom := vp.fitZoom
+
+	// Set terminal to zero (early return path)
+	vp.TermWidth = 0
+	vp.TermHeight = 0
+	vp.FitToWindow()
+
+	if vp.ZoomLevel != 1.0 {
+		t.Errorf("ZoomLevel = %f, want 1.0", vp.ZoomLevel)
+	}
+	if vp.fitZoom != vp.ZoomLevel {
+		t.Errorf("fitZoom = %f, want %f (should match ZoomLevel); was %f before early return",
+			vp.fitZoom, vp.ZoomLevel, prevFitZoom)
+	}
+}
+
 func TestViewport_SetImageSize(t *testing.T) {
 	vp := setupViewport(100, 100, 80, 24)
 	vp.ZoomLevel = 3.0

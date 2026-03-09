@@ -198,6 +198,7 @@ func (v *Viewport) FitToWindow() {
 
 	if v.TermWidth <= 0 || v.TermHeight <= 0 || v.ImgWidth <= 0 || v.ImgHeight <= 0 {
 		v.ZoomLevel = 1.0
+		v.fitZoom = v.ZoomLevel
 		return
 	}
 
