@@ -38,7 +38,7 @@ func (m *mockRenderer) Clear() error {
 	return nil
 }
 
-func (m *mockRenderer) UploadMinimap(_ *domain.ImageEntity, _, _ int, _, _ float64) error {
+func (m *mockRenderer) UploadMinimap(_ *domain.ImageEntity, _, _ int, _ float64) error {
 	m.minimapUploadCnt++
 	return m.minimapUploadErr
 }

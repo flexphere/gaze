@@ -287,6 +287,81 @@ func TestBuildRGBAUploadSequence(t *testing.T) {
 	}
 }
 
+func TestBuildRGBAUploadSequence_SubImage(t *testing.T) {
+	// Create a larger image and take a sub-image (non-zero origin, stride != 4*w)
+	full := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	full.SetRGBA(2, 2, color.RGBA{R: 42, G: 0, B: 0, A: 255})
+	sub := full.SubImage(image.Rect(2, 2, 6, 6)).(*image.RGBA)
+
+	output := buildRGBAUploadSequence(10, sub)
+
+	if !strings.Contains(output, "s=4") {
+		t.Error("sub-image should report width=4")
+	}
+	if !strings.Contains(output, "v=4") {
+		t.Error("sub-image should report height=4")
+	}
+}
+
+func TestKittyRenderer_DisplayMinimap_CacheInvalidatedByClear(t *testing.T) {
+	r := setupMinimapRenderer()
+
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	// First call — full upload
+	_, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error on first call: %v", err)
+	}
+
+	// Clear minimap (removes from terminal)
+	_ = r.ClearMinimap()
+
+	// Third call — should re-upload since clear invalidated cache
+	output, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error after clear: %v", err)
+	}
+	if !strings.Contains(output, "f=32") {
+		t.Error("should re-upload after ClearMinimap (cache should be invalidated)")
+	}
+}
+
+func TestKittyRenderer_DisplayMinimap_CacheInvalidatedByColorChange(t *testing.T) {
+	r := setupMinimapRenderer()
+
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	// First call with white border
+	_, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Second call with different border color — should re-upload
+	output, err := r.DisplayMinimap(vp, 16, 6, "#FF0000")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "f=32") {
+		t.Error("should re-upload when border color changes")
+	}
+}
+
 func TestKittyRenderer_UploadMinimap(t *testing.T) {
 	r := NewKittyRenderer()
 
@@ -296,7 +371,7 @@ func TestKittyRenderer_UploadMinimap(t *testing.T) {
 		"png",
 	)
 
-	err := r.UploadMinimap(img, 16, 6, 8.0, 16.0)
+	err := r.UploadMinimap(img, 16, 6, 2.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

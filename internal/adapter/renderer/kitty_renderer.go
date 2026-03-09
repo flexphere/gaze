@@ -30,8 +30,9 @@ type KittyRenderer struct {
 	minimapH     int         // minimap image height in pixels
 
 	// Minimap indicator cache to skip re-upload when unchanged
-	prevIndicator [4]int // pxLeft, pxTop, pxRight, pxBottom
-	prevUploadSeq string // cached escape sequence from last upload
+	prevIndicator   [4]int // pxLeft, pxTop, pxRight, pxBottom
+	prevBorderColor string // cached border color
+	prevCached      bool   // true when cache is valid
 }
 
 // NewKittyRenderer creates a new KittyRenderer.
@@ -115,21 +116,21 @@ func (r *KittyRenderer) Clear() error {
 // UploadMinimap creates a downscaled thumbnail base image for the minimap.
 // The base is kept in memory; actual upload happens in DisplayMinimap each frame
 // (with the viewport indicator rectangle drawn on top).
-func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, cellW, cellH float64) error {
+func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, cellAspect float64) error {
 	// Delete existing minimap image from terminal before assigning a new ID
 	if r.minimapID > 0 {
 		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
 	}
 	r.minimapID = atomic.AddUint32(&imageIDCounter, 1)
 
-	// Calculate pixel dimensions for the minimap using actual cell size.
-	if cellW <= 0 {
-		cellW = 8.0
+	// Calculate pixel dimensions for the minimap.
+	// Use a base cell width and derive height from aspect ratio.
+	if cellAspect <= 0 {
+		cellAspect = 2.0
 	}
-	if cellH <= 0 {
-		cellH = 16.0
-	}
-	pixW := int(math.Round(float64(cols) * cellW))
+	const baseCellW = 8.0
+	cellH := baseCellW * cellAspect
+	pixW := int(math.Round(float64(cols) * baseCellW))
 	pixH := int(math.Round(float64(rows) * cellH))
 
 	// Preserve aspect ratio within the target area
@@ -161,7 +162,8 @@ func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, c
 
 	// Reset indicator cache
 	r.prevIndicator = [4]int{}
-	r.prevUploadSeq = ""
+	r.prevBorderColor = ""
+	r.prevCached = false
 
 	return nil
 }
@@ -224,10 +226,10 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	placeCmd := fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,c=%d,r=%d,z=1,q=2\x1b\\",
 		startRow, startCol, r.minimapID, cols, rows)
 
-	// Skip re-upload if indicator rectangle hasn't changed.
+	// Skip re-upload if indicator rectangle and border color haven't changed.
 	// The image is already in terminal memory; just re-place it.
 	indicator := [4]int{pxLeft, pxTop, pxRight, pxBottom}
-	if indicator == r.prevIndicator && r.prevUploadSeq != "" {
+	if r.prevCached && indicator == r.prevIndicator && borderColor == r.prevBorderColor {
 		return placeCmd, nil
 	}
 
@@ -249,7 +251,8 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 
 	// Cache indicator state
 	r.prevIndicator = indicator
-	r.prevUploadSeq = "cached"
+	r.prevBorderColor = borderColor
+	r.prevCached = true
 
 	return out.String(), nil
 }
@@ -259,6 +262,8 @@ func (r *KittyRenderer) ClearMinimap() error {
 	if r.minimapID > 0 {
 		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
 	}
+	// Invalidate cache so next DisplayMinimap re-uploads
+	r.prevCached = false
 	return nil
 }
 
@@ -381,7 +386,21 @@ func buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
 	w := bounds.Dx()
 	h := bounds.Dy()
 
-	encoded := base64.StdEncoding.EncodeToString(img.Pix)
+	// Use pixel buffer directly if it's densely packed (stride == 4*width and
+	// origin at 0,0). Otherwise copy row-by-row to produce a dense buffer,
+	// which can happen with sub-images.
+	const bytesPerPixel = 4
+	pix := img.Pix
+	if bounds.Min.X != 0 || bounds.Min.Y != 0 || img.Stride != w*bytesPerPixel {
+		pix = make([]byte, w*h*bytesPerPixel)
+		for y := 0; y < h; y++ {
+			srcOff := (y+bounds.Min.Y)*img.Stride + bounds.Min.X*bytesPerPixel
+			dstOff := y * w * bytesPerPixel
+			copy(pix[dstOff:dstOff+w*bytesPerPixel], img.Pix[srcOff:srcOff+w*bytesPerPixel])
+		}
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(pix)
 
 	var out strings.Builder
 	const chunkSize = 4096

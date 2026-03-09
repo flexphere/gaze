@@ -56,10 +56,7 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 				if cellAspect <= 0 {
 					cellAspect = 2.0
 				}
-				// Derive cell dimensions: cellH = cellAspect * cellW, use 8.0 as base width
-				cellW := 8.0
-				cellH := cellW * cellAspect
-				if err := uc.renderer.UploadMinimap(img, minimapCols, minimapRows, cellW, cellH); err != nil {
+				if err := uc.renderer.UploadMinimap(img, minimapCols, minimapRows, cellAspect); err != nil {
 					return "", fmt.Errorf("uploading minimap: %w", err)
 				}
 				uc.minimapUploaded = true
