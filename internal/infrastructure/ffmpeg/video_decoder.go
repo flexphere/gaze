@@ -20,6 +20,7 @@ type VideoDecoder struct {
 	path   string
 	cmd    *exec.Cmd
 	stdout io.ReadCloser
+	pixBuf []byte // reusable pixel buffer to reduce GC pressure
 }
 
 // NewVideoDecoder creates a new VideoDecoder.
@@ -57,9 +58,11 @@ func (d *VideoDecoder) NextFrame() (image.Image, error) {
 	}
 
 	frameSize := d.info.Width * d.info.Height * 4
-	pix := make([]byte, frameSize)
+	if len(d.pixBuf) != frameSize {
+		d.pixBuf = make([]byte, frameSize)
+	}
 
-	n, err := io.ReadFull(d.stdout, pix)
+	n, err := io.ReadFull(d.stdout, d.pixBuf)
 	if err != nil {
 		if errors.Is(err, io.EOF) && n == 0 {
 			return nil, io.EOF
@@ -71,7 +74,7 @@ func (d *VideoDecoder) NextFrame() (image.Image, error) {
 	}
 
 	return &image.RGBA{
-		Pix:    pix,
+		Pix:    d.pixBuf,
 		Stride: d.info.Width * 4,
 		Rect:   image.Rect(0, 0, d.info.Width, d.info.Height),
 	}, nil
@@ -92,6 +95,7 @@ func (d *VideoDecoder) Seek(pos time.Duration) error {
 // Close stops the ffmpeg process and releases resources.
 func (d *VideoDecoder) Close() error {
 	d.stopFFmpeg()
+	d.pixBuf = nil
 	return nil
 }
 

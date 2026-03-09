@@ -36,7 +36,12 @@ func NewKittyRenderer() *KittyRenderer {
 }
 
 // Upload encodes and transmits the image to the terminal via Kitty graphics protocol.
+// If a previous image exists, it is deleted first to prevent memory accumulation.
 func (r *KittyRenderer) Upload(img *domain.ImageEntity) error {
+	// Delete existing image from terminal before assigning a new ID
+	if r.imageID > 0 {
+		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.imageID)
+	}
 	r.imageID = atomic.AddUint32(&imageIDCounter, 1)
 	r.imgW = img.Width
 	r.imgH = img.Height
@@ -327,10 +332,7 @@ func buildUploadSequence(id uint32, img image.Image) (string, error) {
 	var out strings.Builder
 	const chunkSize = 4096
 	for i := 0; i < len(encoded); i += chunkSize {
-		end := i + chunkSize
-		if end > len(encoded) {
-			end = len(encoded)
-		}
+		end := min(i+chunkSize, len(encoded))
 		chunk := encoded[i:end]
 
 		more := 1
