@@ -28,6 +28,11 @@ type KittyRenderer struct {
 	minimapFrame *image.RGBA // reusable work buffer for compositing
 	minimapW     int         // minimap image width in pixels
 	minimapH     int         // minimap image height in pixels
+
+	// Minimap indicator cache to skip re-upload when unchanged
+	prevIndicator   [4]int // pxLeft, pxTop, pxRight, pxBottom
+	prevBorderColor string // cached border color
+	prevCached      bool   // true when cache is valid
 }
 
 // NewKittyRenderer creates a new KittyRenderer.
@@ -66,18 +71,22 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 	}
 
 	// Calculate appropriate display columns/rows preserving aspect ratio
+	cellAspect := vp.CellAspectRatio
+	if cellAspect <= 0 {
+		cellAspect = 2.0
+	}
 	imgAspect := float64(srcW) / float64(srcH)
-	termAspect := float64(cols) / (float64(rows) * 2) // cells are ~2:1 height:width
+	termAspect := float64(cols) / (float64(rows) * cellAspect)
 
 	var displayCols, displayRows int
 	if imgAspect > termAspect {
 		// Image is wider than terminal area
 		displayCols = cols
-		displayRows = int(math.Round(float64(cols) / imgAspect / 2))
+		displayRows = int(math.Round(float64(cols) / imgAspect / cellAspect))
 	} else {
 		// Image is taller than terminal area
 		displayRows = rows
-		displayCols = int(math.Round(float64(rows) * 2 * imgAspect))
+		displayCols = int(math.Round(float64(rows) * cellAspect * imgAspect))
 	}
 
 	if displayCols <= 0 {
@@ -107,7 +116,7 @@ func (r *KittyRenderer) Clear() error {
 // UploadMinimap creates a downscaled thumbnail base image for the minimap.
 // The base is kept in memory; actual upload happens in DisplayMinimap each frame
 // (with the viewport indicator rectangle drawn on top).
-func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int) error {
+func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, cellAspect float64) error {
 	// Delete existing minimap image from terminal before assigning a new ID
 	if r.minimapID > 0 {
 		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
@@ -115,9 +124,14 @@ func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int) e
 	r.minimapID = atomic.AddUint32(&imageIDCounter, 1)
 
 	// Calculate pixel dimensions for the minimap.
-	// Use cols*8 and rows*16 as approximate pixel sizes per cell.
-	pixW := cols * 8
-	pixH := rows * 16
+	// Use a base cell width and derive height from aspect ratio.
+	if cellAspect <= 0 {
+		cellAspect = 2.0
+	}
+	const baseCellW = 8.0
+	cellH := baseCellW * cellAspect
+	pixW := int(math.Round(float64(cols) * baseCellW))
+	pixH := int(math.Round(float64(rows) * cellH))
 
 	// Preserve aspect ratio within the target area
 	imgAspect := float64(img.Width) / float64(img.Height)
@@ -146,12 +160,20 @@ func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int) e
 	// Allocate reusable work buffer for per-frame compositing
 	r.minimapFrame = image.NewRGBA(image.Rect(0, 0, pixW, pixH))
 
+	// Reset indicator cache
+	r.prevIndicator = [4]int{}
+	r.prevBorderColor = ""
+	r.prevCached = false
+
 	return nil
 }
 
 // DisplayMinimap composites the viewport indicator onto the minimap base,
-// and returns all escape sequences (delete + upload + placement) as a single string
-// so they are written atomically through Bubbletea's View() output.
+// and returns all escape sequences as a single string so they are written
+// atomically through Bubbletea's View() output.
+//
+// Re-transmits with the same image ID (which auto-replaces the old data in the
+// terminal) and uses raw RGBA pixel data (f=32) to avoid expensive PNG encoding.
 func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, borderColor string) (string, error) {
 	if r.minimapID == 0 || r.minimapBase == nil || cols <= 0 || rows <= 0 {
 		return "", nil
@@ -162,9 +184,6 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	if imgW <= 0 || imgH <= 0 {
 		return "", nil
 	}
-
-	// Reuse work buffer instead of allocating each frame
-	copy(r.minimapFrame.Pix, r.minimapBase.Pix)
 
 	// Calculate indicator rectangle in pixel coordinates
 	visRect := vp.VisibleRect()
@@ -193,28 +212,9 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 		pxBottom = r.minimapH
 	}
 
-	// Draw indicator rectangle border with configured color and dark outline
-	border := parseHexColor(borderColor)
-	drawRect(r.minimapFrame, pxLeft, pxTop, pxRight, pxBottom, border)
-
-	// Build all escape sequences into one string so they are output atomically.
-	// This prevents timing issues between delete/upload and placement.
-	var out strings.Builder
-
-	// 1. Delete previous minimap image
-	fmt.Fprintf(&out, "\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
-
-	// 2. Upload new minimap frame
-	uploadSeq, err := buildUploadSequence(r.minimapID, r.minimapFrame)
-	if err != nil {
-		return "", fmt.Errorf("encoding minimap frame: %w", err)
-	}
-	out.WriteString(uploadSeq)
-
-	// 3. Position and place minimap at bottom-right (above status bar)
-	startCol := vp.TermWidth - cols + 1  // 1-based
-	startRow := vp.TermHeight - rows + 1 // 1-based
-
+	// Placement position (bottom-right corner)
+	startCol := vp.TermWidth - cols + 1 // 1-based
+	startRow := vp.TermHeight - rows + 1
 	if startCol < 1 {
 		startCol = 1
 	}
@@ -222,9 +222,37 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 		startRow = 1
 	}
 
-	fmt.Fprintf(&out, "\x1b[%d;%dH", startRow, startCol)
-	// z=1 ensures minimap is rendered above the main image (z=0 default)
-	fmt.Fprintf(&out, "\x1b_Ga=p,i=%d,c=%d,r=%d,z=1,q=2\x1b\\", r.minimapID, cols, rows)
+	// Build placement command (always needed since main image re-render may overwrite)
+	placeCmd := fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,c=%d,r=%d,z=1,q=2\x1b\\",
+		startRow, startCol, r.minimapID, cols, rows)
+
+	// Skip re-upload if indicator rectangle and border color haven't changed.
+	// The image is already in terminal memory; just re-place it.
+	indicator := [4]int{pxLeft, pxTop, pxRight, pxBottom}
+	if r.prevCached && indicator == r.prevIndicator && borderColor == r.prevBorderColor {
+		return placeCmd, nil
+	}
+
+	// Composite: copy base then draw indicator
+	copy(r.minimapFrame.Pix, r.minimapBase.Pix)
+	border := parseHexColor(borderColor)
+	drawRect(r.minimapFrame, pxLeft, pxTop, pxRight, pxBottom, border)
+
+	// Build all escape sequences into one string so they are output atomically.
+	// Re-transmitting with the same ID auto-replaces old data in the terminal.
+	var out strings.Builder
+
+	// 1. Upload frame with raw RGBA (f=32) — same ID auto-replaces old image
+	uploadSeq := buildRGBAUploadSequence(r.minimapID, r.minimapFrame)
+	out.WriteString(uploadSeq)
+
+	// 2. Place minimap
+	out.WriteString(placeCmd)
+
+	// Cache indicator state
+	r.prevIndicator = indicator
+	r.prevBorderColor = borderColor
+	r.prevCached = true
 
 	return out.String(), nil
 }
@@ -234,6 +262,8 @@ func (r *KittyRenderer) ClearMinimap() error {
 	if r.minimapID > 0 {
 		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
 	}
+	// Invalidate cache so next DisplayMinimap re-uploads
+	r.prevCached = false
 	return nil
 }
 
@@ -315,7 +345,7 @@ func drawRectBorder(img *image.RGBA, left, top, right, bottom int, c color.RGBA)
 }
 
 // buildUploadSequence creates the Kitty upload escape sequences as a string
-// instead of writing directly to stdout.
+// using PNG encoding. Used for the main image upload.
 func buildUploadSequence(id uint32, img image.Image) (string, error) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
@@ -339,13 +369,62 @@ func buildUploadSequence(id uint32, img image.Image) (string, error) {
 		}
 
 		if i == 0 {
-			fmt.Fprintf(&out, "\x1b_Gi=%d,f=100,a=t,t=d,m=%d;%s\x1b\\", id, more, chunk)
+			fmt.Fprintf(&out, "\x1b_Gi=%d,f=100,a=t,t=d,q=2,m=%d;%s\x1b\\", id, more, chunk)
 		} else {
 			fmt.Fprintf(&out, "\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, chunk)
 		}
 	}
 
 	return out.String(), nil
+}
+
+// buildRGBAUploadSequence creates Kitty upload escape sequences using raw RGBA
+// pixel data (f=32). This is much faster than PNG encoding since it skips the
+// compression step and uses the image's pixel buffer directly.
+func buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
+	bounds := img.Bounds()
+	w := bounds.Dx()
+	h := bounds.Dy()
+
+	// Use pixel buffer directly if it's densely packed (stride == 4*width and
+	// origin at 0,0). Otherwise copy row-by-row to produce a dense buffer,
+	// which can happen with sub-images.
+	const bytesPerPixel = 4
+	pix := img.Pix
+	if bounds.Min.X != 0 || bounds.Min.Y != 0 || img.Stride != w*bytesPerPixel {
+		pix = make([]byte, w*h*bytesPerPixel)
+		for y := 0; y < h; y++ {
+			srcOff := (y+bounds.Min.Y)*img.Stride + bounds.Min.X*bytesPerPixel
+			dstOff := y * w * bytesPerPixel
+			copy(pix[dstOff:dstOff+w*bytesPerPixel], img.Pix[srcOff:srcOff+w*bytesPerPixel])
+		}
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(pix)
+
+	var out strings.Builder
+	const chunkSize = 4096
+	for i := 0; i < len(encoded); i += chunkSize {
+		end := i + chunkSize
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		chunk := encoded[i:end]
+
+		more := 1
+		if end >= len(encoded) {
+			more = 0
+		}
+
+		if i == 0 {
+			fmt.Fprintf(&out, "\x1b_Gi=%d,f=32,s=%d,v=%d,a=t,t=d,q=2,m=%d;%s\x1b\\",
+				id, w, h, more, chunk)
+		} else {
+			fmt.Fprintf(&out, "\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, chunk)
+		}
+	}
+
+	return out.String()
 }
 
 // uploadImage encodes and transmits an image to the terminal.

@@ -52,7 +52,11 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 		if minimapCols >= minMinimapCols && minimapRows >= minMinimapRows {
 			shouldShowMinimap = true
 			if !uc.minimapUploaded {
-				if err := uc.renderer.UploadMinimap(img, minimapCols, minimapRows); err != nil {
+				cellAspect := vp.CellAspectRatio
+				if cellAspect <= 0 {
+					cellAspect = 2.0
+				}
+				if err := uc.renderer.UploadMinimap(img, minimapCols, minimapRows, cellAspect); err != nil {
 					return "", fmt.Errorf("uploading minimap: %w", err)
 				}
 				uc.minimapUploaded = true
@@ -92,9 +96,13 @@ func (uc *renderFrameUseCase) minimapSize(vp *domain.Viewport) (cols, rows int) 
 		cols = 1
 	}
 
-	// Preserve image aspect ratio (terminal cells are ~2:1 height:width)
+	// Preserve image aspect ratio using actual cell aspect ratio
+	cellAspect := vp.CellAspectRatio
+	if cellAspect <= 0 {
+		cellAspect = 2.0
+	}
 	imgAspect := float64(vp.ImgWidth) / float64(vp.ImgHeight)
-	rows = int(math.Round(float64(cols) / imgAspect / 2))
+	rows = int(math.Round(float64(cols) / imgAspect / cellAspect))
 	if rows < 1 {
 		rows = 1
 	}

@@ -117,8 +117,14 @@ func TestUpdate_FitToWindow(t *testing.T) {
 	updated, _ := m.Update(msg)
 	um := updated.(Model)
 
-	if um.viewport.ZoomLevel != 1.0 {
-		t.Errorf("FitToWindow should set zoom to 1.0, got %f", um.viewport.ZoomLevel)
+	// FitToWindow calculates zoom based on terminal and image size
+	// With 800x600 image, 80x24 terminal, cellAspect=2.0:
+	// zoomH = 800*24*2/(80*600) = 0.8, so zoom = 0.8
+	if um.viewport.ZoomLevel > 1.001 {
+		t.Errorf("FitToWindow should set zoom to fit level (<=1.0), got %f", um.viewport.ZoomLevel)
+	}
+	if um.viewport.IsZoomed() {
+		t.Error("FitToWindow should not leave viewport in zoomed state")
 	}
 }
 

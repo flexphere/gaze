@@ -15,7 +15,7 @@ type RendererPort interface {
 	Clear() error
 
 	// Minimap methods
-	UploadMinimap(img *domain.ImageEntity, cols, rows int) error
+	UploadMinimap(img *domain.ImageEntity, cols, rows int, cellAspect float64) error
 	DisplayMinimap(vp *domain.Viewport, cols, rows int, borderColor string) (string, error)
 	ClearMinimap() error
 }

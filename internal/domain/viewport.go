@@ -9,27 +9,36 @@ import (
 type Viewport struct {
 	OffsetX   float64 // horizontal offset in source image pixels
 	OffsetY   float64 // vertical offset in source image pixels
-	ZoomLevel float64 // 1.0 = fit-to-window, >1.0 = zoomed in
+	ZoomLevel float64 // current zoom level; fit-to-window level is stored in fitZoom and may be < 1.0
 
-	TermWidth  int // terminal width in cells
-	TermHeight int // terminal height in cells (minus status bar)
-	ImgWidth   int // source image width in pixels
-	ImgHeight  int // source image height in pixels
+	TermWidth       int     // terminal width in cells
+	TermHeight      int     // terminal height in cells (minus status bar)
+	ImgWidth        int     // source image width in pixels
+	ImgHeight       int     // source image height in pixels
+	CellAspectRatio float64 // cell height / cell width (e.g. 2.0 means cell is twice as tall as wide)
 
+	fitZoom  float64 // zoom level calculated by FitToWindow
 	minZoom  float64
 	maxZoom  float64
 	zoomStep float64
 	panStep  float64
 }
 
+const (
+	defaultCellAspectRatio = 2.0
+	minCellAspectRatio     = 0.1
+	maxCellAspectRatio     = 10.0
+)
+
 // NewViewport creates a new Viewport with the given configuration.
 func NewViewport(cfg ViewportConfig) *Viewport {
 	return &Viewport{
-		ZoomLevel: 1.0,
-		minZoom:   cfg.MinZoom,
-		maxZoom:   cfg.MaxZoom,
-		zoomStep:  cfg.ZoomStep,
-		panStep:   cfg.PanStep,
+		ZoomLevel:       1.0,
+		CellAspectRatio: defaultCellAspectRatio,
+		minZoom:         cfg.MinZoom,
+		maxZoom:         cfg.MaxZoom,
+		zoomStep:        cfg.ZoomStep,
+		panStep:         cfg.PanStep,
 	}
 }
 
@@ -40,11 +49,40 @@ func (v *Viewport) SetImageSize(w, h int) {
 	v.FitToWindow()
 }
 
-// SetTerminalSize updates terminal dimensions and re-clamps.
+// SetTerminalSize updates terminal dimensions and recalculates fit zoom.
 func (v *Viewport) SetTerminalSize(w, h int) {
+	wasAtFit := v.isAtFitLevel()
 	v.TermWidth = w
 	v.TermHeight = h
-	v.Clamp()
+	if wasAtFit {
+		v.FitToWindow()
+	} else {
+		v.Clamp()
+	}
+}
+
+// isAtFitLevel returns true when the viewport zoom is at the fit-to-window level.
+// Unlike !IsZoomed(), this does not match zoomed-out states below fitZoom.
+func (v *Viewport) isAtFitLevel() bool {
+	fit := v.fitZoom
+	if fit <= 0 {
+		fit = 1.0
+	}
+	return math.Abs(v.ZoomLevel-fit) <= fit*0.001
+}
+
+// SetCellAspectRatio sets the cell height-to-width ratio.
+// Values are clamped to [0.1, 10.0].
+func (v *Viewport) SetCellAspectRatio(ratio float64) {
+	v.CellAspectRatio = clampFloat(ratio, minCellAspectRatio, maxCellAspectRatio)
+}
+
+// cellAspect returns the effective cell aspect ratio, defaulting to 2.0 if unset.
+func (v *Viewport) cellAspect() float64 {
+	if v.CellAspectRatio <= 0 {
+		return defaultCellAspectRatio
+	}
+	return v.CellAspectRatio
 }
 
 // VisibleWidth returns the width of the visible region in source pixels.
@@ -56,11 +94,16 @@ func (v *Viewport) VisibleWidth() float64 {
 }
 
 // VisibleHeight returns the height of the visible region in source pixels.
+// It accounts for the terminal cell aspect ratio so that the source rectangle
+// matches the physical aspect ratio of the terminal display area.
 func (v *Viewport) VisibleHeight() float64 {
-	if v.ZoomLevel <= 0 {
+	if v.ZoomLevel <= 0 || v.TermWidth <= 0 || v.TermHeight <= 0 {
 		return float64(v.ImgHeight)
 	}
-	return float64(v.ImgHeight) / v.ZoomLevel
+	vw := v.VisibleWidth()
+	// termPixelHeight / termPixelWidth = (TermHeight * cellH) / (TermWidth * cellW)
+	//                                  = (TermHeight * cellAspect) / TermWidth
+	return vw * float64(v.TermHeight) * v.cellAspect() / float64(v.TermWidth)
 }
 
 // VisibleRect returns the source image rectangle visible in the viewport.
@@ -147,10 +190,32 @@ func (v *Viewport) PanByStep(dirX, dirY int) {
 }
 
 // FitToWindow resets zoom and offset to show the entire image.
+// It calculates the zoom level so the entire image fits within the terminal,
+// accounting for the cell aspect ratio.
 func (v *Viewport) FitToWindow() {
-	v.ZoomLevel = 1.0
 	v.OffsetX = 0
 	v.OffsetY = 0
+
+	if v.TermWidth <= 0 || v.TermHeight <= 0 || v.ImgWidth <= 0 || v.ImgHeight <= 0 {
+		v.ZoomLevel = 1.0
+		v.fitZoom = v.ZoomLevel
+		return
+	}
+
+	// At zoom z, visible width = ImgWidth/z, visible height = (ImgWidth/z) * (TermHeight*cellAspect/TermWidth)
+	// For the image to fit:
+	//   VisibleWidth >= ImgWidth  => z <= 1.0
+	//   VisibleHeight >= ImgHeight => (ImgWidth/z) * (TermHeight*cellAspect/TermWidth) >= ImgHeight
+	//                               => z <= ImgWidth * TermHeight * cellAspect / (TermWidth * ImgHeight)
+	zoomW := 1.0
+	zoomH := float64(v.ImgWidth) * float64(v.TermHeight) * v.cellAspect() / (float64(v.TermWidth) * float64(v.ImgHeight))
+
+	v.ZoomLevel = math.Min(zoomW, zoomH)
+	if v.ZoomLevel < v.minZoom {
+		v.ZoomLevel = v.minZoom
+	}
+	v.fitZoom = v.ZoomLevel
+	v.Clamp()
 }
 
 // Clamp ensures offset stays within valid bounds.
@@ -175,14 +240,22 @@ func (v *Viewport) Clamp() {
 	}
 }
 
-// ZoomPercentage returns the current zoom as a display percentage.
+// ZoomPercentage returns the current zoom as a display percentage relative to fit level.
 func (v *Viewport) ZoomPercentage() int {
-	return int(math.Round(v.ZoomLevel * 100))
+	fit := v.fitZoom
+	if fit <= 0 {
+		fit = 1.0
+	}
+	return int(math.Round(v.ZoomLevel / fit * 100))
 }
 
 // IsZoomed returns true when the viewport is zoomed in beyond fit-to-window.
 func (v *Viewport) IsZoomed() bool {
-	return v.ZoomLevel > 1.001
+	fit := v.fitZoom
+	if fit <= 0 {
+		fit = 1.0
+	}
+	return v.ZoomLevel > fit*1.001
 }
 
 func clampFloat(val, min, max float64) float64 {

@@ -21,6 +21,7 @@ func setupViewport(imgW, imgH, termW, termH int) *Viewport {
 	vp.TermHeight = termH
 	vp.ImgWidth = imgW
 	vp.ImgHeight = imgH
+	vp.CellAspectRatio = 2.0 // default: cells are twice as tall as wide
 	return vp
 }
 
@@ -69,14 +70,66 @@ func TestViewport_VisibleHeight(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.ZoomLevel = 2.0
 
+	// VisibleWidth = 1000/2 = 500
+	// VisibleHeight = 500 * 24 * 2.0 / 80 = 300
 	got := vp.VisibleHeight()
-	want := 400.0
+	want := 300.0
 	if math.Abs(got-want) > 0.001 {
 		t.Errorf("VisibleHeight() = %f, want %f", got, want)
 	}
 }
 
+func TestViewport_VisibleHeight_WithCellAspectRatio(t *testing.T) {
+	tests := []struct {
+		name            string
+		imgW, imgH      int
+		termW, termH    int
+		zoom            float64
+		cellAspectRatio float64
+		want            float64
+	}{
+		{
+			name: "default 2:1 cells",
+			imgW: 1000, imgH: 800, termW: 80, termH: 24,
+			zoom: 1.0, cellAspectRatio: 2.0,
+			// VW=1000, VH=1000*24*2/80=600
+			want: 600,
+		},
+		{
+			name: "square cells",
+			imgW: 1000, imgH: 800, termW: 80, termH: 24,
+			zoom: 1.0, cellAspectRatio: 1.0,
+			// VW=1000, VH=1000*24*1/80=300
+			want: 300,
+		},
+		{
+			name: "zoomed with non-default aspect",
+			imgW: 800, imgH: 600, termW: 100, termH: 50,
+			zoom: 2.0, cellAspectRatio: 1.8,
+			// VW=400, VH=400*50*1.8/100=360
+			want: 360,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vp := setupViewport(tt.imgW, tt.imgH, tt.termW, tt.termH)
+			vp.ZoomLevel = tt.zoom
+			vp.CellAspectRatio = tt.cellAspectRatio
+
+			got := vp.VisibleHeight()
+			if math.Abs(got-tt.want) > 0.001 {
+				t.Errorf("VisibleHeight() = %f, want %f", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestViewport_VisibleRect(t *testing.T) {
+	// With termW=80, termH=24, cellAspect=2.0:
+	// At zoom 1.0: VW=imgW, VH=imgW*24*2/80 = imgW*0.6
+	// At zoom 2.0: VW=imgW/2, VH=(imgW/2)*0.6
+
 	tests := []struct {
 		name    string
 		offsetX float64
@@ -89,18 +142,21 @@ func TestViewport_VisibleRect(t *testing.T) {
 		{
 			name: "full image at zoom 1.0",
 			zoom: 1.0, imgW: 800, imgH: 600,
-			want: image.Rect(0, 0, 800, 600),
+			// VW=800, VH=800*24*2/80=480 < 600, so height clamped to image
+			want: image.Rect(0, 0, 800, 480),
 		},
 		{
 			name: "zoomed in 2x at origin",
 			zoom: 2.0, imgW: 800, imgH: 600,
-			want: image.Rect(0, 0, 400, 300),
+			// VW=400, VH=400*24*2/80=240
+			want: image.Rect(0, 0, 400, 240),
 		},
 		{
 			name:    "zoomed in 2x with offset",
 			offsetX: 100, offsetY: 50,
 			zoom: 2.0, imgW: 800, imgH: 600,
-			want: image.Rect(100, 50, 500, 350),
+			// VW=400, VH=240
+			want: image.Rect(100, 50, 500, 290),
 		},
 		{
 			name:    "clamped to image bounds",
@@ -170,6 +226,7 @@ func TestViewport_Zoom_ClampsToMinMax(t *testing.T) {
 func TestViewport_Zoom_PreservesCenter(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.ZoomLevel = 2.0
+	vp.fitZoom = 0.5
 	vp.OffsetX = 200
 	vp.OffsetY = 150
 	vp.Clamp()
@@ -193,6 +250,7 @@ func TestViewport_Zoom_PreservesCenter(t *testing.T) {
 func TestViewport_ZoomAt_PreservesCursorPoint(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.ZoomLevel = 2.0
+	vp.fitZoom = 0.5
 	vp.OffsetX = 100
 	vp.OffsetY = 80
 	vp.Clamp()
@@ -244,6 +302,7 @@ func TestViewport_Pan(t *testing.T) {
 func TestViewport_Pan_ClampsAtEdges(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.ZoomLevel = 2.0
+	vp.fitZoom = 0.5 // set fitZoom so Pan works at zoom=2.0
 
 	// Pan far beyond bounds
 	vp.Pan(9999, 9999)
@@ -270,7 +329,8 @@ func TestViewport_Pan_ClampsAtEdges(t *testing.T) {
 
 func TestViewport_PanByStep(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
-	vp.ZoomLevel = 2.0 // visible: 500x400
+	vp.ZoomLevel = 2.0 // visible: 500x300 (with cell aspect 2.0)
+	vp.fitZoom = 0.5   // allow zoom=2.0 to be zoomed in
 
 	vp.PanByStep(1, 0) // right by 5% of 500 = 25
 
@@ -281,21 +341,82 @@ func TestViewport_PanByStep(t *testing.T) {
 }
 
 func TestViewport_FitToWindow(t *testing.T) {
-	vp := setupViewport(1000, 800, 80, 24)
-	vp.ZoomLevel = 5.0
-	vp.OffsetX = 300
-	vp.OffsetY = 200
+	tests := []struct {
+		name            string
+		imgW, imgH      int
+		termW, termH    int
+		cellAspectRatio float64
+		wantZoom        float64
+	}{
+		{
+			name: "wide image fits by width",
+			imgW: 1000, imgH: 200, termW: 80, termH: 24,
+			cellAspectRatio: 2.0,
+			// zoomH = 1000*24*2/(80*200) = 3.0 > 1.0 → zoom = 1.0
+			wantZoom: 1.0,
+		},
+		{
+			name: "tall image fits by height",
+			imgW: 800, imgH: 600, termW: 80, termH: 24,
+			cellAspectRatio: 2.0,
+			// zoomH = 800*24*2/(80*600) = 0.8 < 1.0 → zoom = 0.8
+			wantZoom: 0.8,
+		},
+		{
+			name: "square image with 2:1 cells",
+			imgW: 1000, imgH: 1000, termW: 80, termH: 24,
+			cellAspectRatio: 2.0,
+			// zoomH = 1000*24*2/(80*1000) = 0.6 → zoom = 0.6
+			wantZoom: 0.6,
+		},
+	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vp := setupViewport(tt.imgW, tt.imgH, tt.termW, tt.termH)
+			vp.CellAspectRatio = tt.cellAspectRatio
+			vp.ZoomLevel = 5.0
+			vp.OffsetX = 300
+			vp.OffsetY = 200
+
+			vp.FitToWindow()
+
+			if math.Abs(vp.ZoomLevel-tt.wantZoom) > 0.001 {
+				t.Errorf("ZoomLevel = %f, want %f", vp.ZoomLevel, tt.wantZoom)
+			}
+			if vp.OffsetX > 0.001 || vp.OffsetX < -float64(tt.imgW) {
+				t.Errorf("OffsetX = %f, should be near 0 or centered", vp.OffsetX)
+			}
+		})
+	}
+}
+
+func TestViewport_FitToWindow_ZeroTerminalSize(t *testing.T) {
+	vp := setupViewport(1000, 800, 0, 0)
+	vp.FitToWindow()
+
+	if vp.ZoomLevel != 1.0 {
+		t.Errorf("ZoomLevel = %f, want 1.0 for zero terminal", vp.ZoomLevel)
+	}
+}
+
+func TestViewport_FitToWindow_ZeroTerminalSize_UpdatesFitZoom(t *testing.T) {
+	vp := setupViewport(1000, 800, 80, 24)
+	vp.FitToWindow()
+	// fitZoom is now < 1.0
+	prevFitZoom := vp.fitZoom
+
+	// Set terminal to zero (early return path)
+	vp.TermWidth = 0
+	vp.TermHeight = 0
 	vp.FitToWindow()
 
 	if vp.ZoomLevel != 1.0 {
 		t.Errorf("ZoomLevel = %f, want 1.0", vp.ZoomLevel)
 	}
-	if vp.OffsetX != 0 {
-		t.Errorf("OffsetX = %f, want 0", vp.OffsetX)
-	}
-	if vp.OffsetY != 0 {
-		t.Errorf("OffsetY = %f, want 0", vp.OffsetY)
+	if vp.fitZoom != vp.ZoomLevel {
+		t.Errorf("fitZoom = %f, want %f (should match ZoomLevel); was %f before early return",
+			vp.fitZoom, vp.ZoomLevel, prevFitZoom)
 	}
 }
 
@@ -312,15 +433,18 @@ func TestViewport_SetImageSize(t *testing.T) {
 	if vp.ImgHeight != 1500 {
 		t.Errorf("ImgHeight = %d, want 1500", vp.ImgHeight)
 	}
-	if vp.ZoomLevel != 1.0 {
-		t.Errorf("ZoomLevel = %f, want 1.0 (should reset)", vp.ZoomLevel)
+	// FitToWindow: zoomH = 2000*24*2/(80*1500) = 0.8 → zoom = 0.8
+	wantZoom := 0.8
+	if math.Abs(vp.ZoomLevel-wantZoom) > 0.001 {
+		t.Errorf("ZoomLevel = %f, want %f (should fit)", vp.ZoomLevel, wantZoom)
 	}
 }
 
 func TestViewport_SetTerminalSize(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.ZoomLevel = 2.0
-	vp.OffsetX = 600 // beyond valid after shrink
+	vp.fitZoom = 0.5 // pretend we're zoomed in
+	vp.OffsetX = 400
 
 	vp.SetTerminalSize(40, 12)
 
@@ -330,15 +454,50 @@ func TestViewport_SetTerminalSize(t *testing.T) {
 	if vp.TermHeight != 12 {
 		t.Errorf("TermHeight = %d, want 12", vp.TermHeight)
 	}
+	// ZoomLevel should remain 2.0 since we were zoomed in (not at fit)
+	if math.Abs(vp.ZoomLevel-2.0) > 0.001 {
+		t.Errorf("ZoomLevel = %f, want 2.0 (zoomed in, should keep)", vp.ZoomLevel)
+	}
+}
+
+func TestViewport_SetTerminalSize_NoRefitWhenZoomedOut(t *testing.T) {
+	vp := setupViewport(1000, 800, 80, 24)
+	vp.FitToWindow() // fitZoom = 0.75
+	// Zoom out below fit level
+	vp.ZoomLevel = 0.3
+
+	vp.SetTerminalSize(100, 50)
+
+	// Should NOT re-fit because we were zoomed out (not at fit level)
+	if math.Abs(vp.ZoomLevel-0.3) > 0.001 {
+		t.Errorf("ZoomLevel = %f, want 0.3 (zoomed out, should not re-fit)", vp.ZoomLevel)
+	}
+}
+
+func TestViewport_SetTerminalSize_RefitsWhenAtFit(t *testing.T) {
+	vp := setupViewport(1000, 800, 80, 24)
+	vp.FitToWindow() // zoomH = 1000*24*2/(80*800) = 0.75
+	fitBefore := vp.ZoomLevel
+
+	// Change to different aspect ratio terminal
+	vp.SetTerminalSize(100, 50)
+	// zoomH = 1000*50*2/(100*800) = 1.25 → zoom = min(1.0, 1.25) = 1.0
+
+	if math.Abs(vp.ZoomLevel-fitBefore) < 0.001 {
+		t.Errorf("ZoomLevel should be recalculated: before=%f, after=%f", fitBefore, vp.ZoomLevel)
+	}
+	if vp.TermWidth != 100 || vp.TermHeight != 50 {
+		t.Errorf("Terminal size not updated")
+	}
 }
 
 func TestViewport_Clamp_CentersWhenImageSmaller(t *testing.T) {
 	vp := setupViewport(100, 100, 80, 24)
-	vp.ZoomLevel = 0.5 // visible area is 200x200, larger than image 100x100
+	vp.ZoomLevel = 0.5 // VW=200, VH=200*24*2/80=120
 
 	vp.Clamp()
 
-	// Should center: offset = (100 - 200) / 2 = -50
+	// Should center: offset = (imgDim - visibleDim) / 2
 	wantX := (float64(100) - vp.VisibleWidth()) / 2
 	wantY := (float64(100) - vp.VisibleHeight()) / 2
 	if math.Abs(vp.OffsetX-wantX) > 0.001 {
@@ -351,23 +510,28 @@ func TestViewport_Clamp_CentersWhenImageSmaller(t *testing.T) {
 
 func TestViewport_ZoomPercentage(t *testing.T) {
 	tests := []struct {
-		zoom float64
-		want int
+		name    string
+		zoom    float64
+		fitZoom float64
+		want    int
 	}{
-		{1.0, 100},
-		{2.0, 200},
-		{0.5, 50},
-		{1.55, 155},
+		{"at fit level", 0.6, 0.6, 100},
+		{"2x fit level", 1.2, 0.6, 200},
+		{"half of fit", 0.3, 0.6, 50},
+		{"unset fitZoom defaults to 1.0", 1.55, 0, 155},
 	}
 
 	for _, tt := range tests {
-		vp := setupViewport(100, 100, 80, 24)
-		vp.ZoomLevel = tt.zoom
+		t.Run(tt.name, func(t *testing.T) {
+			vp := setupViewport(100, 100, 80, 24)
+			vp.ZoomLevel = tt.zoom
+			vp.fitZoom = tt.fitZoom
 
-		got := vp.ZoomPercentage()
-		if got != tt.want {
-			t.Errorf("ZoomPercentage() at zoom %f = %d, want %d", tt.zoom, got, tt.want)
-		}
+			got := vp.ZoomPercentage()
+			if got != tt.want {
+				t.Errorf("ZoomPercentage() at zoom %f (fit %f) = %d, want %d", tt.zoom, tt.fitZoom, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -375,24 +539,53 @@ func TestViewport_IsZoomed(t *testing.T) {
 	tests := []struct {
 		name      string
 		zoomLevel float64
+		fitZoom   float64
 		want      bool
 	}{
-		{"fit to window", 1.0, false},
-		{"just above 1.0 within tolerance", 1.0005, false},
-		{"zoomed in", 1.5, true},
-		{"zoomed in 2x", 2.0, true},
-		{"zoomed out", 0.5, false},
-		{"slightly above tolerance", 1.002, true},
+		{"at fit level", 0.6, 0.6, false},
+		{"just above fit within tolerance", 0.6003, 0.6, false},
+		{"zoomed in", 0.9, 0.6, true},
+		{"zoomed in 2x from fit", 1.2, 0.6, true},
+		{"below fit", 0.3, 0.6, false},
+		{"slightly above tolerance", 0.6012, 0.6, true},
+		{"unset fitZoom defaults to 1.0", 1.5, 0, true},
+		{"unset fitZoom at 1.0", 1.0, 0, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			vp := setupViewport(1000, 800, 80, 24)
 			vp.ZoomLevel = tt.zoomLevel
+			vp.fitZoom = tt.fitZoom
 
 			got := vp.IsZoomed()
 			if got != tt.want {
-				t.Errorf("IsZoomed() at zoom %f = %v, want %v", tt.zoomLevel, got, tt.want)
+				t.Errorf("IsZoomed() at zoom %f (fit %f) = %v, want %v", tt.zoomLevel, tt.fitZoom, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestViewport_SetCellAspectRatio(t *testing.T) {
+	tests := []struct {
+		name  string
+		input float64
+		want  float64
+	}{
+		{"normal value", 2.0, 2.0},
+		{"clamped to min", -1.0, 0.1},
+		{"clamped to max", 100.0, 10.0},
+		{"zero clamped to min", 0.0, 0.1},
+		{"edge min", 0.1, 0.1},
+		{"edge max", 10.0, 10.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vp := setupViewport(100, 100, 80, 24)
+			vp.SetCellAspectRatio(tt.input)
+			if math.Abs(vp.CellAspectRatio-tt.want) > 0.001 {
+				t.Errorf("CellAspectRatio = %f, want %f", vp.CellAspectRatio, tt.want)
 			}
 		})
 	}
