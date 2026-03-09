@@ -9,7 +9,7 @@ import (
 type Viewport struct {
 	OffsetX   float64 // horizontal offset in source image pixels
 	OffsetY   float64 // vertical offset in source image pixels
-	ZoomLevel float64 // 1.0 = fit-to-window, >1.0 = zoomed in
+	ZoomLevel float64 // current zoom level; fit-to-window level is stored in fitZoom and may be < 1.0
 
 	TermWidth       int     // terminal width in cells
 	TermHeight      int     // terminal height in cells (minus status bar)
@@ -51,7 +51,7 @@ func (v *Viewport) SetImageSize(w, h int) {
 
 // SetTerminalSize updates terminal dimensions and recalculates fit zoom.
 func (v *Viewport) SetTerminalSize(w, h int) {
-	wasAtFit := !v.IsZoomed()
+	wasAtFit := v.isAtFitLevel()
 	v.TermWidth = w
 	v.TermHeight = h
 	if wasAtFit {
@@ -59,6 +59,16 @@ func (v *Viewport) SetTerminalSize(w, h int) {
 	} else {
 		v.Clamp()
 	}
+}
+
+// isAtFitLevel returns true when the viewport zoom is at the fit-to-window level.
+// Unlike !IsZoomed(), this does not match zoomed-out states below fitZoom.
+func (v *Viewport) isAtFitLevel() bool {
+	fit := v.fitZoom
+	if fit <= 0 {
+		fit = 1.0
+	}
+	return math.Abs(v.ZoomLevel-fit) <= fit*0.001
 }
 
 // SetCellAspectRatio sets the cell height-to-width ratio.

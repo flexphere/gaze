@@ -440,6 +440,20 @@ func TestViewport_SetTerminalSize(t *testing.T) {
 	}
 }
 
+func TestViewport_SetTerminalSize_NoRefitWhenZoomedOut(t *testing.T) {
+	vp := setupViewport(1000, 800, 80, 24)
+	vp.FitToWindow() // fitZoom = 0.75
+	// Zoom out below fit level
+	vp.ZoomLevel = 0.3
+
+	vp.SetTerminalSize(100, 50)
+
+	// Should NOT re-fit because we were zoomed out (not at fit level)
+	if math.Abs(vp.ZoomLevel-0.3) > 0.001 {
+		t.Errorf("ZoomLevel = %f, want 0.3 (zoomed out, should not re-fit)", vp.ZoomLevel)
+	}
+}
+
 func TestViewport_SetTerminalSize_RefitsWhenAtFit(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.FitToWindow() // zoomH = 1000*24*2/(80*800) = 0.75
