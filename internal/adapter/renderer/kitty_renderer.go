@@ -71,10 +71,7 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 	}
 
 	// Calculate appropriate display columns/rows preserving aspect ratio
-	cellAspect := vp.CellAspectRatio
-	if cellAspect <= 0 {
-		cellAspect = 2.0
-	}
+	cellAspect := vp.CellAspect()
 	imgAspect := float64(srcW) / float64(srcH)
 	termAspect := float64(cols) / (float64(rows) * cellAspect)
 
@@ -125,9 +122,6 @@ func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, c
 
 	// Calculate pixel dimensions for the minimap.
 	// Use a base cell width and derive height from aspect ratio.
-	if cellAspect <= 0 {
-		cellAspect = 2.0
-	}
 	const baseCellW = 8.0
 	cellH := baseCellW * cellAspect
 	pixW := int(math.Round(float64(cols) * baseCellW))
