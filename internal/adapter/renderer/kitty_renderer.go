@@ -23,6 +23,7 @@ type KittyRenderer struct {
 	imageID      uint32
 	imgW         int
 	imgH         int
+	videoMode    bool
 	minimapID    uint32
 	minimapBase  *image.RGBA // downscaled thumbnail (reused each frame)
 	minimapFrame *image.RGBA // reusable work buffer for compositing
@@ -99,6 +100,11 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 		r.imageID, srcX, srcY, srcW, srcH, displayCols, displayRows)
 
 	return output, nil
+}
+
+// SetVideoMode enables optimizations for video playback (faster PNG compression).
+func (r *KittyRenderer) SetVideoMode(enabled bool) {
+	r.videoMode = enabled
 }
 
 // Clear removes the image from the terminal.
@@ -210,7 +216,7 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	fmt.Fprintf(&out, "\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
 
 	// 2. Upload new minimap frame
-	uploadSeq, err := buildUploadSequence(r.minimapID, r.minimapFrame)
+	uploadSeq, err := buildUploadSequence(r.minimapID, r.minimapFrame, png.DefaultCompression)
 	if err != nil {
 		return "", fmt.Errorf("encoding minimap frame: %w", err)
 	}
@@ -321,9 +327,10 @@ func drawRectBorder(img *image.RGBA, left, top, right, bottom int, c color.RGBA)
 
 // buildUploadSequence creates the Kitty upload escape sequences as a string
 // instead of writing directly to stdout.
-func buildUploadSequence(id uint32, img image.Image) (string, error) {
+func buildUploadSequence(id uint32, img image.Image, compression png.CompressionLevel) (string, error) {
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	enc := png.Encoder{CompressionLevel: compression}
+	if err := enc.Encode(&buf, img); err != nil {
 		return "", fmt.Errorf("encoding image to PNG: %w", err)
 	}
 
@@ -352,7 +359,11 @@ func buildUploadSequence(id uint32, img image.Image) (string, error) {
 
 // uploadImage encodes and transmits an image to the terminal.
 func (r *KittyRenderer) uploadImage(id uint32, img image.Image) error {
-	seq, err := buildUploadSequence(id, img)
+	compression := png.DefaultCompression
+	if r.videoMode {
+		compression = png.BestSpeed
+	}
+	seq, err := buildUploadSequence(id, img, compression)
 	if err != nil {
 		return err
 	}

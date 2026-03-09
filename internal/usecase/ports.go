@@ -18,6 +18,7 @@ type RendererPort interface {
 	Upload(img *domain.ImageEntity) error
 	Display(vp *domain.Viewport) (string, error)
 	Clear() error
+	SetVideoMode(enabled bool)
 
 	// Minimap methods
 	UploadMinimap(img *domain.ImageEntity, cols, rows int) error

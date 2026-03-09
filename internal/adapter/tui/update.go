@@ -7,8 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/flexphere/gaze/internal/domain"
 )
 
 const seekStep = 5 * time.Second
@@ -29,6 +27,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.viewport.SetTerminalSize(msg.Width, msg.Height-1) // -1 for status bar
 		m.ready = true
+		if m.isVideoMode() {
+			m.image = m.scaleVideoFrame(m.image.Source)
+		}
 		m.updateFrame()
 		return m, nil
 
@@ -107,10 +108,7 @@ func (m Model) handleVideoKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) seekVideo(delta time.Duration) (tea.Model, tea.Cmd) {
-	newPos := m.position + delta
-	if newPos < 0 {
-		newPos = 0
-	}
+	newPos := max(m.position+delta, 0)
 	if m.videoInfo.Duration > 0 && newPos > m.videoInfo.Duration {
 		newPos = m.videoInfo.Duration
 	}
@@ -130,7 +128,7 @@ func (m Model) seekVideo(delta time.Duration) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.image = domain.NewImageEntity(frame, m.image.Path, "video")
+	m.image = m.scaleVideoFrame(frame)
 	m.updateFrame()
 
 	if m.playing {
@@ -153,7 +151,7 @@ func (m Model) handleVideoTick() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.image = domain.NewImageEntity(frame, m.image.Path, "video")
+	m.image = m.scaleVideoFrame(frame)
 	m.position += time.Duration(float64(time.Second) / m.videoInfo.FrameRate)
 	m.updateFrame()
 

@@ -53,6 +53,8 @@ func (m *mockRenderer) ClearMinimap() error {
 	return m.minimapClearErr
 }
 
+func (m *mockRenderer) SetVideoMode(_ bool) {}
+
 func TestRenderFrameUseCase_SetMinimapEnabled(t *testing.T) {
 	renderer := &mockRenderer{displayOut: "main"}
 	cfg := domain.MinimapConfig{Enabled: true, Size: 0.2}

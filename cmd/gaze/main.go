@@ -121,6 +121,7 @@ func runVideoViewer(filePath string, cfg *domain.Config) error {
 
 	// Create renderer and use cases
 	kittyRenderer := renderer.NewKittyRenderer()
+	kittyRenderer.SetVideoMode(true)
 	renderFrameUC := usecase.NewRenderFrameUseCase(kittyRenderer, cfg.Minimap)
 
 	// Create video TUI model
