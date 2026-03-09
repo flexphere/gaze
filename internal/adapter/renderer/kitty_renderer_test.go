@@ -22,6 +22,7 @@ func TestKittyRenderer_Display(t *testing.T) {
 	vp.ImgHeight = 600
 	vp.TermWidth = 80
 	vp.TermHeight = 24
+	vp.CellAspectRatio = 2.0
 
 	output, err := r.Display(vp)
 	if err != nil {
@@ -37,8 +38,9 @@ func TestKittyRenderer_Display(t *testing.T) {
 	if !strings.Contains(output, "w=800") {
 		t.Error("output should contain source width")
 	}
-	if !strings.Contains(output, "h=600") {
-		t.Error("output should contain source height")
+	// VH = 800*24*2/80 = 480
+	if !strings.Contains(output, "h=480") {
+		t.Errorf("output should contain h=480 (visible height with cell aspect), got: %s", output)
 	}
 }
 
@@ -55,7 +57,8 @@ func TestKittyRenderer_Display_ZoomedIn(t *testing.T) {
 	vp.ImgHeight = 600
 	vp.TermWidth = 80
 	vp.TermHeight = 24
-	vp.ZoomLevel = 2.0 // Shows 400x300
+	vp.CellAspectRatio = 2.0
+	vp.ZoomLevel = 2.0 // VW=400, VH=400*24*2/80=240
 
 	output, err := r.Display(vp)
 	if err != nil {
@@ -65,8 +68,8 @@ func TestKittyRenderer_Display_ZoomedIn(t *testing.T) {
 	if !strings.Contains(output, "w=400") {
 		t.Errorf("output should contain w=400 for 2x zoom, got: %s", output)
 	}
-	if !strings.Contains(output, "h=300") {
-		t.Errorf("output should contain h=300 for 2x zoom, got: %s", output)
+	if !strings.Contains(output, "h=240") {
+		t.Errorf("output should contain h=240 for 2x zoom with cell aspect, got: %s", output)
 	}
 }
 
@@ -102,6 +105,7 @@ func TestKittyRenderer_Display_AspectRatio(t *testing.T) {
 	vp.ImgHeight = 1080
 	vp.TermWidth = 80
 	vp.TermHeight = 24
+	vp.CellAspectRatio = 2.0
 
 	output, err := r.Display(vp)
 	if err != nil {
@@ -144,12 +148,17 @@ func TestKittyRenderer_DisplayMinimap(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should contain minimap image display command
-	if !strings.Contains(output, "i=2") {
-		t.Error("output should contain minimap image ID")
-	}
+	// Should contain placement and upload commands
 	if !strings.Contains(output, "a=p") {
 		t.Error("output should contain action=place")
+	}
+	// Uses raw RGBA format
+	if !strings.Contains(output, "f=32") {
+		t.Error("output should use raw RGBA format (f=32)")
+	}
+	// Reuses same minimap ID
+	if !strings.Contains(output, "i=2") {
+		t.Error("output should contain minimap image ID")
 	}
 }
 
@@ -217,6 +226,67 @@ func TestKittyRenderer_DisplayMinimap_CursorPosition(t *testing.T) {
 	}
 }
 
+func TestKittyRenderer_DisplayMinimap_CacheHit(t *testing.T) {
+	r := setupMinimapRenderer()
+
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	// First call — full upload
+	output1, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error on first call: %v", err)
+	}
+	if !strings.Contains(output1, "f=32") {
+		t.Error("first call should upload with f=32")
+	}
+
+	// Second call with same viewport — cache hit, only placement
+	output2, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error on second call: %v", err)
+	}
+	if strings.Contains(output2, "f=32") {
+		t.Error("second call should not re-upload (cache hit)")
+	}
+	if !strings.Contains(output2, "a=p") {
+		t.Error("second call should still contain placement command")
+	}
+}
+
+func TestBuildRGBAUploadSequence(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	// Set a pixel to verify data is included
+	img.SetRGBA(0, 0, color.RGBA{R: 255, G: 0, B: 0, A: 255})
+
+	output := buildRGBAUploadSequence(42, img)
+
+	if !strings.Contains(output, "i=42") {
+		t.Error("output should contain image ID")
+	}
+	if !strings.Contains(output, "f=32") {
+		t.Error("output should specify raw RGBA format")
+	}
+	if !strings.Contains(output, "s=4") {
+		t.Error("output should contain image width")
+	}
+	if !strings.Contains(output, "v=4") {
+		t.Error("output should contain image height")
+	}
+	if !strings.Contains(output, "a=t") {
+		t.Error("output should contain transmit action")
+	}
+	if !strings.Contains(output, "q=2") {
+		t.Error("output should contain quiet mode flag")
+	}
+}
+
 func TestKittyRenderer_UploadMinimap(t *testing.T) {
 	r := NewKittyRenderer()
 
@@ -226,7 +296,7 @@ func TestKittyRenderer_UploadMinimap(t *testing.T) {
 		"png",
 	)
 
-	err := r.UploadMinimap(img, 16, 6)
+	err := r.UploadMinimap(img, 16, 6, 8.0, 16.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

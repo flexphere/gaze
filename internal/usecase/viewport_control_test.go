@@ -115,8 +115,10 @@ func TestViewportControlUseCase_ResetView(t *testing.T) {
 
 	uc.ResetView(vp)
 
-	if vp.ZoomLevel != 1.0 {
-		t.Errorf("ZoomLevel = %f, want 1.0", vp.ZoomLevel)
+	// With 1000x800 image, 80x24 terminal, cellAspect=2.0:
+	// zoomH = 1000*24*2/(80*800) = 0.75
+	if vp.IsZoomed() {
+		t.Errorf("ResetView should return to fit level, got ZoomLevel=%f", vp.ZoomLevel)
 	}
 }
 
@@ -127,8 +129,8 @@ func TestViewportControlUseCase_FitToWindow(t *testing.T) {
 
 	uc.FitToWindow(vp)
 
-	if vp.ZoomLevel != 1.0 {
-		t.Errorf("ZoomLevel = %f, want 1.0", vp.ZoomLevel)
+	if vp.IsZoomed() {
+		t.Errorf("FitToWindow should return to fit level, got ZoomLevel=%f", vp.ZoomLevel)
 	}
 }
 
