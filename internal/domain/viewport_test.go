@@ -142,7 +142,7 @@ func TestViewport_VisibleRect(t *testing.T) {
 		{
 			name: "full image at zoom 1.0",
 			zoom: 1.0, imgW: 800, imgH: 600,
-			// VW=800, VH=800*24*2/80=480 < 600, so height clamped to image
+			// VW=800, VH=800*24*2/80=480 < 600, so visible height is 480 (determined by terminal aspect ratio)
 			want: image.Rect(0, 0, 800, 480),
 		},
 		{
