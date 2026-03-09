@@ -77,7 +77,7 @@ func (v *Viewport) SetCellAspectRatio(ratio float64) {
 	v.CellAspectRatio = clampFloat(ratio, minCellAspectRatio, maxCellAspectRatio)
 }
 
-// CellAspect returns the effective cell aspect ratio, defaulting to 2.0 if unset.
+// CellAspect returns the effective cell aspect ratio, using defaultCellAspectRatio if unset.
 func (v *Viewport) CellAspect() float64 {
 	if v.CellAspectRatio <= 0 {
 		return defaultCellAspectRatio
