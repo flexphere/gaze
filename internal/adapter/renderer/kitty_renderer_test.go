@@ -261,11 +261,12 @@ func TestKittyRenderer_DisplayMinimap_CacheHit(t *testing.T) {
 }
 
 func TestBuildRGBAUploadSequence(t *testing.T) {
+	r := NewKittyRenderer()
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	// Set a pixel to verify data is included
 	img.SetRGBA(0, 0, color.RGBA{R: 255, G: 0, B: 0, A: 255})
 
-	output := buildRGBAUploadSequence(42, img)
+	output := r.buildRGBAUploadSequence(42, img)
 
 	if !strings.Contains(output, "i=42") {
 		t.Error("output should contain image ID")
@@ -288,12 +289,13 @@ func TestBuildRGBAUploadSequence(t *testing.T) {
 }
 
 func TestBuildRGBAUploadSequence_SubImage(t *testing.T) {
+	r := NewKittyRenderer()
 	// Create a larger image and take a sub-image (non-zero origin, stride != 4*w)
 	full := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	full.SetRGBA(2, 2, color.RGBA{R: 42, G: 0, B: 0, A: 255})
 	sub := full.SubImage(image.Rect(2, 2, 6, 6)).(*image.RGBA)
 
-	output := buildRGBAUploadSequence(10, sub)
+	output := r.buildRGBAUploadSequence(10, sub)
 
 	if !strings.Contains(output, "s=4") {
 		t.Error("sub-image should report width=4")
@@ -406,6 +408,156 @@ func TestKittyRenderer_DisplayMinimap_NoBase(t *testing.T) {
 	}
 	if output != "" {
 		t.Errorf("expected empty output without minimap base, got: %q", output)
+	}
+}
+
+func TestWrapDCSPassthrough(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			"simple APC",
+			"\x1b_Ga=d,d=i,i=1\x1b\\",
+			"\x1bPtmux;\x1b\x1b_Ga=d,d=i,i=1\x1b\x1b\\\x1b\\",
+		},
+		{
+			"no ESC chars",
+			"hello",
+			"\x1bPtmux;hello\x1b\\",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapDCSPassthrough(tt.input)
+			if got != tt.want {
+				t.Errorf("wrapDCSPassthrough(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestKittyRenderer_TmuxMode_Display(t *testing.T) {
+	r := NewKittyRenderer(WithTmuxMode(true))
+	r.imageID = 1
+	r.imgW = 800
+	r.imgH = 600
+
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.CellAspectRatio = 2.0
+
+	output, err := r.Display(vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should start with cursor move (NOT wrapped)
+	if !strings.HasPrefix(output, "\x1b[H") {
+		t.Error("output should start with cursor move \\x1b[H")
+	}
+
+	// APC should be wrapped in DCS passthrough
+	if !strings.Contains(output, "\x1bPtmux;") {
+		t.Error("tmux mode output should contain DCS passthrough prefix")
+	}
+	// The wrapped content should still contain the placement params
+	if !strings.Contains(output, "a=p") {
+		t.Error("tmux mode output should contain action=place")
+	}
+	if !strings.Contains(output, "i=1") {
+		t.Error("tmux mode output should contain image ID")
+	}
+}
+
+func TestKittyRenderer_TmuxMode_DisplayMinimap(t *testing.T) {
+	r := NewKittyRenderer(WithTmuxMode(true))
+	r.minimapID = 2
+	r.minimapW = 128
+	r.minimapH = 96
+	r.minimapBase = image.NewRGBA(image.Rect(0, 0, 128, 96))
+	r.minimapFrame = image.NewRGBA(image.Rect(0, 0, 128, 96))
+
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	output, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Upload chunks should be wrapped
+	if !strings.Contains(output, "\x1bPtmux;") {
+		t.Error("tmux mode minimap should contain DCS passthrough")
+	}
+	// Placement APC should also be wrapped
+	if count := strings.Count(output, "\x1bPtmux;"); count < 2 {
+		t.Errorf("expected at least 2 DCS wrappers (upload + placement), got %d", count)
+	}
+}
+
+func TestKittyRenderer_TmuxMode_DisplayMinimap_CacheHit(t *testing.T) {
+	r := NewKittyRenderer(WithTmuxMode(true))
+	r.minimapID = 2
+	r.minimapW = 128
+	r.minimapH = 96
+	r.minimapBase = image.NewRGBA(image.Rect(0, 0, 128, 96))
+	r.minimapFrame = image.NewRGBA(image.Rect(0, 0, 128, 96))
+
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.ImgWidth = 800
+	vp.ImgHeight = 600
+	vp.TermWidth = 80
+	vp.TermHeight = 24
+	vp.ZoomLevel = 2.0
+
+	// First call — full upload
+	_, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Second call — cache hit, placement only
+	output, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Placement should still be wrapped in tmux mode
+	if !strings.Contains(output, "\x1bPtmux;") {
+		t.Error("cached placement should still be wrapped in tmux mode")
+	}
+}
+
+func TestKittyRenderer_TmuxMode_BuildRGBAUploadSequence(t *testing.T) {
+	r := NewKittyRenderer(WithTmuxMode(true))
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+
+	output := r.buildRGBAUploadSequence(42, img)
+
+	// Each chunk should be individually wrapped
+	if !strings.Contains(output, "\x1bPtmux;") {
+		t.Error("tmux mode upload should wrap chunks in DCS passthrough")
+	}
+	// Should NOT contain raw (unwrapped) APC start
+	// In wrapped form, \x1b_ becomes \x1b\x1b_ inside the DCS payload
+	if strings.Contains(output, "\x1b_G") && !strings.Contains(output, "\x1b\x1b_G") {
+		t.Error("tmux mode should not contain unwrapped APC sequences")
 	}
 }
 
