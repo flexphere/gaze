@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -65,11 +66,19 @@ func runStatic(args []string) error {
 		return fmt.Errorf("unable to determine terminal size")
 	}
 
-	// Build viewport for full image display
+	// Calculate native cell dimensions (1:1 pixel mapping), capped at terminal width
 	cellW, cellH := tui.QueryCellSize()
+	nativeCols := int(math.Ceil(float64(img.Width) / cellW))
+	nativeRows := int(math.Ceil(float64(img.Height) / cellH))
+	displayCols := nativeCols
+	if displayCols > cols {
+		displayCols = cols
+	}
+
+	// Build viewport sized to native display area
 	vp := &domain.Viewport{
-		TermWidth:       cols,
-		TermHeight:      rows,
+		TermWidth:       displayCols,
+		TermHeight:      nativeRows,
 		ImgWidth:        img.Width,
 		ImgHeight:       img.Height,
 		CellAspectRatio: cellH / cellW,
