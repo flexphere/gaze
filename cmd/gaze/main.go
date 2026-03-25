@@ -62,12 +62,12 @@ func runStatic(args []string) error {
 	}
 
 	// Query terminal dimensions
-	cols, _ := tui.QueryTerminalSize()
-	if cols <= 0 {
+	cols, rows := tui.QueryTerminalSize()
+	if cols <= 0 || rows <= 0 {
 		return fmt.Errorf("determining terminal size: --static requires a TTY")
 	}
 
-	// Calculate native cell dimensions (1:1 pixel mapping), capped at terminal width
+	// Calculate native cell dimensions (1:1 pixel mapping), capped at terminal size
 	cellW, cellH := tui.QueryCellSize()
 	nativeCols := int(math.Ceil(float64(img.Width) / cellW))
 	nativeRows := int(math.Ceil(float64(img.Height) / cellH))
@@ -75,12 +75,16 @@ func runStatic(args []string) error {
 	if displayCols > cols {
 		displayCols = cols
 	}
+	displayRows := nativeRows
+	if displayRows > rows {
+		displayRows = rows
+	}
 
 	// Build viewport via constructor to inherit default zoom/pan limits
 	cfg := domain.DefaultConfig()
 	vp := domain.NewViewport(cfg.Viewport)
 	vp.SetCellAspectRatio(cellH / cellW)
-	vp.SetTerminalSize(displayCols, nativeRows)
+	vp.SetTerminalSize(displayCols, displayRows)
 	vp.SetImageSize(img.Width, img.Height)
 
 	// Upload and display
@@ -97,11 +101,11 @@ func runStatic(args []string) error {
 	// Strip cursor-to-home (\x1b[H) used by interactive mode; static displays inline
 	output = strings.TrimPrefix(output, "\x1b[H")
 
-	// Calculate display rows to position cursor below the image
+	// Calculate actual display rows to position cursor below the image
 	cellAspect := vp.CellAspect()
 	imgAspect := float64(img.Width) / float64(img.Height)
-	termAspect := float64(displayCols) / (float64(nativeRows) * cellAspect)
-	dispRows := nativeRows
+	termAspect := float64(displayCols) / (float64(displayRows) * cellAspect)
+	dispRows := displayRows
 	if imgAspect > termAspect {
 		dispRows = int(math.Round(float64(displayCols) / imgAspect / cellAspect))
 	}
