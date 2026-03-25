@@ -96,7 +96,7 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 	// Clear previous display and show new frame
 	// Move cursor to top-left, clear screen area, then display
 	output := "\x1b[H" // move cursor to top-left
-	output += fmt.Sprintf("\x1b_Ga=p,i=%d,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,q=2\x1b\\",
+	output += fmt.Sprintf("\x1b_Ga=p,i=%d,p=1,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,q=2\x1b\\",
 		r.imageID, srcX, srcY, srcW, srcH, displayCols, displayRows)
 
 	return output, nil
@@ -217,7 +217,7 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	}
 
 	// Build placement command (always needed since main image re-render may overwrite)
-	placeCmd := fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,c=%d,r=%d,z=1,q=2\x1b\\",
+	placeCmd := fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,z=1,q=2\x1b\\",
 		startRow, startCol, r.minimapID, cols, rows)
 
 	// Skip re-upload if indicator rectangle and border color haven't changed.

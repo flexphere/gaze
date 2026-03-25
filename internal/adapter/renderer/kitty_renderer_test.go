@@ -35,6 +35,9 @@ func TestKittyRenderer_Display(t *testing.T) {
 	if !strings.Contains(output, "a=p") {
 		t.Error("output should contain action=place")
 	}
+	if !strings.Contains(output, "p=1") {
+		t.Error("output should contain placement ID for consistent cross-terminal behavior")
+	}
 	if !strings.Contains(output, "w=800") {
 		t.Error("output should contain source width")
 	}
@@ -151,6 +154,9 @@ func TestKittyRenderer_DisplayMinimap(t *testing.T) {
 	// Should contain placement and upload commands
 	if !strings.Contains(output, "a=p") {
 		t.Error("output should contain action=place")
+	}
+	if !strings.Contains(output, "p=1") {
+		t.Error("output should contain placement ID for consistent cross-terminal behavior")
 	}
 	// Uses raw RGBA format
 	if !strings.Contains(output, "f=32") {
