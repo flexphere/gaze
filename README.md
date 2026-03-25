@@ -20,6 +20,14 @@ A terminal image viewer with zoom and pan support, powered by the [Kitty Graphic
 
 > Other terminals supporting the Kitty Graphics Protocol should also work.
 
+### tmux
+
+gaze works inside tmux by automatically wrapping Kitty graphics sequences in DCS passthrough. Add this to your `~/.tmux.conf`:
+
+```
+set -g allow-passthrough on
+```
+
 ## Installation
 
 ```bash
