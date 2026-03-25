@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -61,9 +62,9 @@ func runStatic(args []string) error {
 	}
 
 	// Query terminal dimensions
-	cols, rows := tui.QueryTerminalSize()
-	if cols <= 0 || rows <= 0 {
-		return fmt.Errorf("unable to determine terminal size")
+	cols, _ := tui.QueryTerminalSize()
+	if cols <= 0 {
+		return fmt.Errorf("determining terminal size: --static requires a TTY")
 	}
 
 	// Calculate native cell dimensions (1:1 pixel mapping), capped at terminal width
@@ -75,16 +76,12 @@ func runStatic(args []string) error {
 		displayCols = cols
 	}
 
-	// Build viewport sized to native display area
-	vp := &domain.Viewport{
-		TermWidth:       displayCols,
-		TermHeight:      nativeRows,
-		ImgWidth:        img.Width,
-		ImgHeight:       img.Height,
-		CellAspectRatio: cellH / cellW,
-		ZoomLevel:       1.0,
-	}
-	vp.FitToWindow()
+	// Build viewport via constructor to inherit default zoom/pan limits
+	cfg := domain.DefaultConfig()
+	vp := domain.NewViewport(cfg.Viewport)
+	vp.SetCellAspectRatio(cellH / cellW)
+	vp.SetTerminalSize(displayCols, nativeRows)
+	vp.SetImageSize(img.Width, img.Height)
 
 	// Upload and display
 	kittyRenderer := renderer.NewKittyRenderer()
@@ -97,7 +94,24 @@ func runStatic(args []string) error {
 		return fmt.Errorf("displaying image: %w", err)
 	}
 
+	// Strip cursor-to-home (\x1b[H) used by interactive mode; static displays inline
+	output = strings.TrimPrefix(output, "\x1b[H")
+
+	// Calculate display rows to position cursor below the image
+	cellAspect := vp.CellAspect()
+	imgAspect := float64(img.Width) / float64(img.Height)
+	termAspect := float64(displayCols) / (float64(nativeRows) * cellAspect)
+	dispRows := nativeRows
+	if imgAspect > termAspect {
+		dispRows = int(math.Round(float64(displayCols) / imgAspect / cellAspect))
+	}
+	if dispRows <= 0 {
+		dispRows = 1
+	}
+
+	// Display image and move cursor below it
 	fmt.Print(output)
+	fmt.Printf("\x1b[%dB\n", dispRows)
 	return nil
 }
 
