@@ -14,7 +14,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		cellW, cellH := queryCellSize()
+		cellW, cellH := QueryCellSize()
 		m.viewport.SetCellAspectRatio(cellH / cellW)
 		m.viewport.SetTerminalSize(msg.Width, msg.Height-1) // -1 for status bar
 		m.ready = true
