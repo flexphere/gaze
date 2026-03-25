@@ -38,5 +38,8 @@ func QueryTerminalSize() (cols, rows int) {
 	if err != nil {
 		return 0, 0
 	}
+	if ws.Col == 0 || ws.Row == 0 {
+		return 0, 0
+	}
 	return int(ws.Col), int(ws.Row)
 }
