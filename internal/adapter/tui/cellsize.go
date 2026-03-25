@@ -13,9 +13,9 @@ const (
 	defaultCellHeight = 16.0
 )
 
-// queryCellSize returns the terminal cell pixel dimensions using TIOCGWINSZ.
+// QueryCellSize returns the terminal cell pixel dimensions using TIOCGWINSZ.
 // Falls back to 8x16 if pixel dimensions are unavailable.
-func queryCellSize() (cellWidth, cellHeight float64) {
+func QueryCellSize() (cellWidth, cellHeight float64) {
 	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
 	if err != nil {
 		return defaultCellWidth, defaultCellHeight
@@ -29,4 +29,14 @@ func queryCellSize() (cellWidth, cellHeight float64) {
 	cellHeight = float64(ws.Ypixel) / float64(ws.Row)
 
 	return cellWidth, cellHeight
+}
+
+// QueryTerminalSize returns the terminal size in columns and rows using TIOCGWINSZ.
+// Returns (0, 0) if the terminal size cannot be determined.
+func QueryTerminalSize() (cols, rows int) {
+	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
+	if err != nil {
+		return 0, 0
+	}
+	return int(ws.Col), int(ws.Row)
 }

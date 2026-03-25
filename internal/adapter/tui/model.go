@@ -34,7 +34,7 @@ func NewModel(
 	renderFrame usecase.RenderFrameUseCase,
 ) Model {
 	vp := domain.NewViewport(cfg.Viewport)
-	cellW, cellH := queryCellSize()
+	cellW, cellH := QueryCellSize()
 	vp.SetCellAspectRatio(cellH / cellW)
 	vp.SetImageSize(img.Width, img.Height)
 
