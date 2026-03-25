@@ -155,8 +155,18 @@ func TestKittyRenderer_DisplayMinimap(t *testing.T) {
 	if !strings.Contains(output, "a=p") {
 		t.Error("output should contain action=place")
 	}
-	if !strings.Contains(output, "p=1") {
-		t.Error("output should contain placement ID for consistent cross-terminal behavior")
+	// Verify p=1 within the placement command only (not in base64 payload)
+	aPos := strings.Index(output, "a=p")
+	if aPos == -1 {
+		t.Fatal("output should contain action=place (a=p) command")
+	}
+	termPosRel := strings.Index(output[aPos:], "\x1b\\")
+	if termPosRel == -1 {
+		t.Fatalf("output should contain kitty graphics terminator after placement command: %q", output)
+	}
+	placementCmd := output[aPos : aPos+termPosRel]
+	if !strings.Contains(placementCmd, "p=1") {
+		t.Errorf("placement command should contain placement ID p=1 for consistent cross-terminal behavior, got: %q", placementCmd)
 	}
 	// Uses raw RGBA format
 	if !strings.Contains(output, "f=32") {
