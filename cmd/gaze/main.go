@@ -57,7 +57,11 @@ func runViewer(_ *cobra.Command, args []string) error {
 	}
 
 	// Create renderer and use cases
-	kittyRenderer := renderer.NewKittyRenderer()
+	var rendererOpts []renderer.Option
+	if os.Getenv("TMUX") != "" {
+		rendererOpts = append(rendererOpts, renderer.WithTmuxMode(true))
+	}
+	kittyRenderer := renderer.NewKittyRenderer(rendererOpts...)
 	vpCtrl := usecase.NewViewportControlUseCase()
 	renderFrameUC := usecase.NewRenderFrameUseCase(kittyRenderer, cfg.Minimap)
 

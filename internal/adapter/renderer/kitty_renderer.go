@@ -18,6 +18,18 @@ import (
 
 var imageIDCounter uint32
 
+// Option configures KittyRenderer behavior.
+type Option func(*KittyRenderer)
+
+// WithTmuxMode enables tmux DCS passthrough wrapping for Kitty escape sequences.
+// When enabled, all Kitty APC sequences are wrapped in tmux DCS passthrough
+// so the outer terminal receives them directly.
+func WithTmuxMode(enabled bool) Option {
+	return func(r *KittyRenderer) {
+		r.tmuxMode = enabled
+	}
+}
+
 // KittyRenderer implements RendererPort using the Kitty Graphics Protocol.
 type KittyRenderer struct {
 	imageID      uint32
@@ -33,11 +45,43 @@ type KittyRenderer struct {
 	prevIndicator   [4]int // pxLeft, pxTop, pxRight, pxBottom
 	prevBorderColor string // cached border color
 	prevCached      bool   // true when cache is valid
+
+	tmuxMode bool // wrap Kitty sequences in tmux DCS passthrough
 }
 
 // NewKittyRenderer creates a new KittyRenderer.
-func NewKittyRenderer() *KittyRenderer {
-	return &KittyRenderer{}
+func NewKittyRenderer(opts ...Option) *KittyRenderer {
+	r := &KittyRenderer{}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+// wrapSeq wraps a Kitty APC sequence in tmux DCS passthrough when tmux mode
+// is enabled. In normal mode the sequence is returned unchanged.
+func (r *KittyRenderer) wrapSeq(seq string) string {
+	if !r.tmuxMode {
+		return seq
+	}
+	return wrapDCSPassthrough(seq)
+}
+
+// wrapDCSPassthrough wraps an escape sequence in tmux DCS passthrough.
+// Each ESC (\x1b) in the payload is doubled for DCS encoding.
+// Format: \x1bPtmux;<payload_with_doubled_ESC>\x1b\\
+func wrapDCSPassthrough(seq string) string {
+	var buf strings.Builder
+	buf.Grow(len(seq) + 32)
+	buf.WriteString("\x1bPtmux;")
+	for i := 0; i < len(seq); i++ {
+		if seq[i] == '\x1b' {
+			buf.WriteByte('\x1b')
+		}
+		buf.WriteByte(seq[i])
+	}
+	buf.WriteString("\x1b\\")
+	return buf.String()
 }
 
 // Upload encodes and transmits the image to the terminal via Kitty graphics protocol.
@@ -95,9 +139,10 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 
 	// Clear previous display and show new frame
 	// Move cursor to top-left, clear screen area, then display
-	output := "\x1b[H" // move cursor to top-left
-	output += fmt.Sprintf("\x1b_Ga=p,i=%d,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,q=2\x1b\\",
+	apc := fmt.Sprintf("\x1b_Ga=p,i=%d,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,q=2\x1b\\",
 		r.imageID, srcX, srcY, srcW, srcH, displayCols, displayRows)
+
+	output := "\x1b[H" + r.wrapSeq(apc)
 
 	return output, nil
 }
@@ -105,7 +150,8 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 // Clear removes the image from the terminal.
 func (r *KittyRenderer) Clear() error {
 	if r.imageID > 0 {
-		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.imageID)
+		apc := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.imageID)
+		fmt.Print(r.wrapSeq(apc))
 	}
 	return nil
 }
@@ -116,7 +162,8 @@ func (r *KittyRenderer) Clear() error {
 func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, cellAspect float64) error {
 	// Delete existing minimap image from terminal before assigning a new ID
 	if r.minimapID > 0 {
-		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
+		apc := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
+		fmt.Print(r.wrapSeq(apc))
 	}
 	r.minimapID = atomic.AddUint32(&imageIDCounter, 1)
 
@@ -217,8 +264,9 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	}
 
 	// Build placement command (always needed since main image re-render may overwrite)
-	placeCmd := fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,c=%d,r=%d,z=1,q=2\x1b\\",
-		startRow, startCol, r.minimapID, cols, rows)
+	placeAPC := fmt.Sprintf("\x1b_Ga=p,i=%d,c=%d,r=%d,z=1,q=2\x1b\\",
+		r.minimapID, cols, rows)
+	placeCmd := fmt.Sprintf("\x1b[%d;%dH", startRow, startCol) + r.wrapSeq(placeAPC)
 
 	// Skip re-upload if indicator rectangle and border color haven't changed.
 	// The image is already in terminal memory; just re-place it.
@@ -237,7 +285,7 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	var out strings.Builder
 
 	// 1. Upload frame with raw RGBA (f=32) — same ID auto-replaces old image
-	uploadSeq := buildRGBAUploadSequence(r.minimapID, r.minimapFrame)
+	uploadSeq := r.buildRGBAUploadSequence(r.minimapID, r.minimapFrame)
 	out.WriteString(uploadSeq)
 
 	// 2. Place minimap
@@ -254,7 +302,8 @@ func (r *KittyRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 // ClearMinimap removes the minimap image from the terminal.
 func (r *KittyRenderer) ClearMinimap() error {
 	if r.minimapID > 0 {
-		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
+		apc := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
+		fmt.Print(r.wrapSeq(apc))
 	}
 	// Invalidate cache so next DisplayMinimap re-uploads
 	r.prevCached = false
@@ -340,7 +389,8 @@ func drawRectBorder(img *image.RGBA, left, top, right, bottom int, c color.RGBA)
 
 // buildUploadSequence creates the Kitty upload escape sequences as a string
 // using PNG encoding. Used for the main image upload.
-func buildUploadSequence(id uint32, img image.Image) (string, error) {
+// Each chunk is wrapped for tmux DCS passthrough when tmux mode is enabled.
+func (r *KittyRenderer) buildUploadSequence(id uint32, img image.Image) (string, error) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return "", fmt.Errorf("encoding image to PNG: %w", err)
@@ -362,11 +412,13 @@ func buildUploadSequence(id uint32, img image.Image) (string, error) {
 			more = 0
 		}
 
+		var apc string
 		if i == 0 {
-			fmt.Fprintf(&out, "\x1b_Gi=%d,f=100,a=t,t=d,q=2,m=%d;%s\x1b\\", id, more, chunk)
+			apc = fmt.Sprintf("\x1b_Gi=%d,f=100,a=t,t=d,q=2,m=%d;%s\x1b\\", id, more, chunk)
 		} else {
-			fmt.Fprintf(&out, "\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, chunk)
+			apc = fmt.Sprintf("\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, chunk)
 		}
+		out.WriteString(r.wrapSeq(apc))
 	}
 
 	return out.String(), nil
@@ -375,7 +427,8 @@ func buildUploadSequence(id uint32, img image.Image) (string, error) {
 // buildRGBAUploadSequence creates Kitty upload escape sequences using raw RGBA
 // pixel data (f=32). This is much faster than PNG encoding since it skips the
 // compression step and uses the image's pixel buffer directly.
-func buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
+// Each chunk is wrapped for tmux DCS passthrough when tmux mode is enabled.
+func (r *KittyRenderer) buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
 	bounds := img.Bounds()
 	w := bounds.Dx()
 	h := bounds.Dy()
@@ -410,12 +463,14 @@ func buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
 			more = 0
 		}
 
+		var apc string
 		if i == 0 {
-			fmt.Fprintf(&out, "\x1b_Gi=%d,f=32,s=%d,v=%d,a=t,t=d,q=2,m=%d;%s\x1b\\",
+			apc = fmt.Sprintf("\x1b_Gi=%d,f=32,s=%d,v=%d,a=t,t=d,q=2,m=%d;%s\x1b\\",
 				id, w, h, more, chunk)
 		} else {
-			fmt.Fprintf(&out, "\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, chunk)
+			apc = fmt.Sprintf("\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, chunk)
 		}
+		out.WriteString(r.wrapSeq(apc))
 	}
 
 	return out.String()
@@ -423,7 +478,7 @@ func buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
 
 // uploadImage encodes and transmits an image to the terminal.
 func (r *KittyRenderer) uploadImage(id uint32, img image.Image) error {
-	seq, err := buildUploadSequence(id, img)
+	seq, err := r.buildUploadSequence(id, img)
 	if err != nil {
 		return err
 	}
