@@ -27,30 +27,45 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
-	var staticMode bool
+	var (
+		staticMode   bool
+		rendererType string
+	)
 
 	cmd := &cobra.Command{
 		Use:          "gaze <image>",
 		Short:        "Terminal image viewer with zoom and pan",
-		Long:         "gaze is a terminal image viewer that supports zoom, pan, and mouse interaction using Kitty Graphics Protocol.",
+		Long:         "gaze is a terminal image viewer that supports zoom, pan, and mouse interaction using the Kitty Graphics Protocol.",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 	}
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if staticMode {
-			return runStatic(args)
+			return runStatic(args, rendererType)
 		}
-		return runViewer(cmd, args)
+		return runViewer(cmd, args, rendererType)
 	}
 
 	cmd.Flags().BoolVar(&staticMode, "static", false, "Display image and exit without interactive mode")
+	cmd.Flags().StringVarP(&rendererType, "renderer", "r", "kitty", "Renderer protocol (kitty, tmux)")
 	cmd.Version = version
 
 	return cmd
 }
 
-func runStatic(args []string) error {
+func createRenderer(rendererType string) (usecase.RendererPort, error) {
+	switch rendererType {
+	case "kitty":
+		return renderer.NewKittyRenderer(), nil
+	case "tmux":
+		return renderer.NewTmuxRenderer(), nil
+	default:
+		return nil, fmt.Errorf("unknown renderer type %q: supported values are kitty, tmux", rendererType)
+	}
+}
+
+func runStatic(args []string, rendererType string) error {
 	imagePath := args[0]
 
 	// Load image
@@ -88,12 +103,15 @@ func runStatic(args []string) error {
 	vp.SetImageSize(img.Width, img.Height)
 
 	// Upload and display
-	kittyRenderer := renderer.NewKittyRenderer()
-	if err := kittyRenderer.Upload(img); err != nil {
+	imgRenderer, err := createRenderer(rendererType)
+	if err != nil {
+		return err
+	}
+	if err := imgRenderer.Upload(img); err != nil {
 		return fmt.Errorf("uploading image: %w", err)
 	}
 
-	output, err := kittyRenderer.Display(vp)
+	output, err := imgRenderer.Display(vp)
 	if err != nil {
 		return fmt.Errorf("displaying image: %w", err)
 	}
@@ -119,7 +137,7 @@ func runStatic(args []string) error {
 	return nil
 }
 
-func runViewer(_ *cobra.Command, args []string) error {
+func runViewer(_ *cobra.Command, args []string, rendererType string) error {
 	imagePath := args[0]
 
 	// Load configuration
@@ -138,12 +156,20 @@ func runViewer(_ *cobra.Command, args []string) error {
 	}
 
 	// Create renderer and use cases
-	kittyRenderer := renderer.NewKittyRenderer()
+	imgRenderer, err := createRenderer(rendererType)
+	if err != nil {
+		return err
+	}
 	vpCtrl := usecase.NewViewportControlUseCase()
-	renderFrameUC := usecase.NewRenderFrameUseCase(kittyRenderer, cfg.Minimap)
+	renderFrameUC := usecase.NewRenderFrameUseCase(imgRenderer, cfg.Minimap)
 
 	// Create TUI model
 	model := tui.NewModel(img, cfg, vpCtrl, renderFrameUC)
+
+	// Wire up resize callback for renderers that need it (e.g. tmux pane offset)
+	if tmuxR, ok := imgRenderer.(*renderer.TmuxRenderer); ok {
+		model.SetOnResize(tmuxR.RefreshPaneOffset)
+	}
 
 	// Run Bubbletea program
 	p := tea.NewProgram(
@@ -156,12 +182,12 @@ func runViewer(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("running viewer: %w", err)
 	}
 
-	// Clean up Kitty graphics — always attempt both cleanups
+	// Clean up renderer — always attempt both cleanups
 	var errs []error
-	if err := kittyRenderer.ClearMinimap(); err != nil {
+	if err := imgRenderer.ClearMinimap(); err != nil {
 		errs = append(errs, fmt.Errorf("clearing minimap: %w", err))
 	}
-	if err := kittyRenderer.Clear(); err != nil {
+	if err := imgRenderer.Clear(); err != nil {
 		errs = append(errs, fmt.Errorf("clearing renderer: %w", err))
 	}
 

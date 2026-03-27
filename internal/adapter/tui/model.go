@@ -24,6 +24,9 @@ type Model struct {
 	dragStartTermY int
 	dragStartOffX  float64
 	dragStartOffY  float64
+
+	// Optional callback invoked on window resize (e.g. to refresh tmux pane offset)
+	onResize func()
 }
 
 // NewModel creates a new TUI model.
@@ -46,4 +49,9 @@ func NewModel(
 		vpCtrl:      vpCtrl,
 		renderFrame: renderFrame,
 	}
+}
+
+// SetOnResize sets a callback that is invoked on window resize events.
+func (m *Model) SetOnResize(fn func()) {
+	m.onResize = fn
 }
