@@ -104,75 +104,72 @@ func TestWrapAllKittySequences_PlainText(t *testing.T) {
 	}
 }
 
-func TestExtractTrailingCursorMove(t *testing.T) {
+func TestFindCursorMoveInPending(t *testing.T) {
 	tests := []struct {
-		name        string
-		paneTop     int
-		paneLeft    int
-		builderText string
-		wantMove    string
-		wantRemain  string
+		name      string
+		paneTop   int
+		paneLeft  int
+		pending   string
+		wantMove  string
+		wantFlush int
 	}{
 		{
-			name:        "bare cursor home",
-			builderText: "\x1b[H",
-			wantMove:    "\x1b[1;1H",
-			wantRemain:  "",
+			name:      "bare cursor home",
+			pending:   "\x1b[H",
+			wantMove:  "\x1b[1;1H",
+			wantFlush: 0,
 		},
 		{
-			name:        "row and col",
-			builderText: "\x1b[10;20H",
-			wantMove:    "\x1b[10;20H",
-			wantRemain:  "",
+			name:      "row and col",
+			pending:   "\x1b[10;20H",
+			wantMove:  "\x1b[10;20H",
+			wantFlush: 0,
 		},
 		{
-			name:        "with pane offset",
-			paneTop:     3,
-			paneLeft:    50,
-			builderText: "\x1b[10;20H",
-			wantMove:    "\x1b[13;70H",
-			wantRemain:  "",
+			name:      "with pane offset",
+			paneTop:   3,
+			paneLeft:  50,
+			pending:   "\x1b[10;20H",
+			wantMove:  "\x1b[13;70H",
+			wantFlush: 0,
 		},
 		{
-			name:        "prefix text preserved",
-			builderText: "some text\x1b[5;10H",
-			wantMove:    "\x1b[5;10H",
-			wantRemain:  "some text",
+			name:      "prefix text preserved",
+			pending:   "some text\x1b[5;10H",
+			wantMove:  "\x1b[5;10H",
+			wantFlush: 9, // len("some text")
 		},
 		{
-			name:        "no cursor move",
-			builderText: "just text",
-			wantMove:    "",
-			wantRemain:  "just text",
+			name:      "no cursor move",
+			pending:   "just text",
+			wantMove:  "",
+			wantFlush: 9, // len("just text")
 		},
 		{
-			name:        "empty builder",
-			builderText: "",
-			wantMove:    "",
-			wantRemain:  "",
+			name:      "empty pending",
+			pending:   "",
+			wantMove:  "",
+			wantFlush: 0,
 		},
 		{
-			name:        "row only",
-			builderText: "\x1b[5H",
-			wantMove:    "\x1b[5;1H",
-			wantRemain:  "",
+			name:      "row only",
+			pending:   "\x1b[5H",
+			wantMove:  "\x1b[5;1H",
+			wantFlush: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &TmuxRenderer{inner: NewKittyRenderer(), paneTop: tt.paneTop, paneLeft: tt.paneLeft}
-			var b strings.Builder
-			b.WriteString(tt.builderText)
 
-			gotMove := r.extractTrailingCursorMove(&b)
-			gotRemain := b.String()
+			gotMove, gotFlush := r.findCursorMoveInPending(tt.pending)
 
 			if gotMove != tt.wantMove {
 				t.Errorf("move: got %q, want %q", gotMove, tt.wantMove)
 			}
-			if gotRemain != tt.wantRemain {
-				t.Errorf("remain: got %q, want %q", gotRemain, tt.wantRemain)
+			if gotFlush != tt.wantFlush {
+				t.Errorf("flushEnd: got %d, want %d", gotFlush, tt.wantFlush)
 			}
 		})
 	}
