@@ -51,7 +51,9 @@ func (r *SixelRenderer) Upload(img *domain.ImageEntity) error {
 	return nil
 }
 
-// Display generates the Sixel escape sequence for the given viewport.
+// Display writes the Sixel image directly to stdout and returns a cursor-home
+// escape sequence for Bubbletea. Sixel data is written directly because
+// Bubbletea's line-based diff renderer would corrupt the DCS escape sequence.
 func (r *SixelRenderer) Display(vp *domain.Viewport) (string, error) {
 	if r.img == nil {
 		return "", nil
@@ -102,7 +104,11 @@ func (r *SixelRenderer) Display(vp *domain.Viewport) (string, error) {
 
 	scaled := scaleRegion(r.img, rect, pixW, pixH)
 
-	return "\x1b[H" + encodeSixel(scaled), nil
+	// Write Sixel data directly to stdout (bypass Bubbletea rendering)
+	fmt.Print("\x1b[H" + encodeSixel(scaled))
+
+	// Return only cursor-home for Bubbletea's View output
+	return "\x1b[H", nil
 }
 
 // Clear is a no-op for Sixel. Images are part of the screen content
@@ -199,7 +205,8 @@ func (r *SixelRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	// Skip re-encode if indicator and border color haven't changed
 	indicator := [4]int{pxLeft, pxTop, pxRight, pxBottom}
 	if r.prevCached && indicator == r.prevIndicator && borderColor == r.prevBorderColor {
-		return cursorPos + r.prevSixel, nil
+		fmt.Print(cursorPos + r.prevSixel)
+		return "", nil
 	}
 
 	// Composite: copy base then draw indicator
@@ -214,7 +221,9 @@ func (r *SixelRenderer) DisplayMinimap(vp *domain.Viewport, cols, rows int, bord
 	r.prevCached = true
 	r.prevSixel = sixelData
 
-	return cursorPos + sixelData, nil
+	// Write directly to stdout (bypass Bubbletea rendering)
+	fmt.Print(cursorPos + sixelData)
+	return "", nil
 }
 
 // ClearMinimap invalidates the minimap cache.

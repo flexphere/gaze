@@ -42,21 +42,10 @@ func TestSixelRenderer_Display(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should start with cursor-to-home + DCS Sixel start
-	if !strings.HasPrefix(output, "\x1b[H\x1bPq") {
-		t.Errorf("output should start with cursor-home + DCS q, got prefix: %q", output[:min(len(output), 20)])
-	}
-	// Should end with string terminator
-	if !strings.HasSuffix(output, "\x1b\\") {
-		t.Error("output should end with string terminator (ST)")
-	}
-	// Should contain raster attributes
-	if !strings.Contains(output, "\"1;1;") {
-		t.Error("output should contain raster attributes")
-	}
-	// Should contain palette definition
-	if !strings.Contains(output, ";2;") {
-		t.Error("output should contain palette color definitions")
+	// Display writes Sixel to stdout directly and returns only cursor-home
+	// for Bubbletea compatibility
+	if output != "\x1b[H" {
+		t.Errorf("output should be cursor-home only, got: %q", output)
 	}
 }
 
@@ -80,7 +69,7 @@ func TestSixelRenderer_Display_ZeroSize(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if output != "" {
-		t.Errorf("expected empty output for zero terminal size, got length: %d", len(output))
+		t.Errorf("expected empty output for zero terminal size, got: %q", output)
 	}
 }
 
@@ -98,7 +87,7 @@ func TestSixelRenderer_Display_NoUpload(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if output != "" {
-		t.Errorf("expected empty output without upload, got length: %d", len(output))
+		t.Errorf("expected empty output without upload, got: %q", output)
 	}
 }
 
@@ -126,11 +115,9 @@ func TestSixelRenderer_Display_ZoomedIn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.HasPrefix(output, "\x1b[H\x1bPq") {
-		t.Error("zoomed output should start with cursor-home + DCS q")
-	}
-	if !strings.HasSuffix(output, "\x1b\\") {
-		t.Error("zoomed output should end with ST")
+	// Sixel data is written to stdout; return value is cursor-home only
+	if output != "\x1b[H" {
+		t.Errorf("zoomed output should be cursor-home only, got: %q", output)
 	}
 }
 
@@ -206,20 +193,21 @@ func TestSixelRenderer_DisplayMinimap(t *testing.T) {
 	vp.TermHeight = 24
 	vp.ZoomLevel = 2.0
 
+	// DisplayMinimap writes Sixel to stdout and returns empty string
 	output, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if output != "" {
+		t.Errorf("expected empty return (Sixel written to stdout), got length: %d", len(output))
+	}
 
-	// Should contain cursor position and Sixel data
-	if !strings.Contains(output, "\x1b[") {
-		t.Error("output should contain cursor positioning escape")
+	// Verify cache was populated
+	if !r.prevCached {
+		t.Error("cache should be populated after first call")
 	}
-	if !strings.Contains(output, "\x1bPq") {
-		t.Error("output should contain Sixel DCS start")
-	}
-	if !strings.HasSuffix(output, "\x1b\\") {
-		t.Error("output should end with ST")
+	if r.prevSixel == "" {
+		t.Error("cached sixel data should not be empty")
 	}
 }
 
@@ -255,27 +243,6 @@ func TestSixelRenderer_DisplayMinimap_NoBase(t *testing.T) {
 	}
 }
 
-func TestSixelRenderer_DisplayMinimap_CursorPosition(t *testing.T) {
-	r := setupSixelMinimapRenderer()
-
-	vp := newTestViewport()
-	vp.ImgWidth = 800
-	vp.ImgHeight = 600
-	vp.TermWidth = 80
-	vp.TermHeight = 24
-	vp.ZoomLevel = 2.0
-
-	output, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Minimap at bottom-right: startRow=24-6+1=19, startCol=80-16+1=65
-	if !strings.Contains(output, "\x1b[19;65H") {
-		t.Errorf("output should position cursor at row 19, col 65, got: %q", output[:min(len(output), 40)])
-	}
-}
-
 func TestSixelRenderer_DisplayMinimap_CacheHit(t *testing.T) {
 	r := setupSixelMinimapRenderer()
 
@@ -287,24 +254,25 @@ func TestSixelRenderer_DisplayMinimap_CacheHit(t *testing.T) {
 	vp.ZoomLevel = 2.0
 
 	// First call — full encode
-	output1, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	_, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
 	if err != nil {
 		t.Fatalf("unexpected error on first call: %v", err)
 	}
-	if !strings.Contains(output1, "\x1bPq") {
-		t.Error("first call should contain Sixel data")
+
+	cachedSixel := r.prevSixel
+	if cachedSixel == "" {
+		t.Fatal("cached sixel should not be empty after first call")
 	}
 
 	// Second call with same viewport — cache hit
-	output2, err := r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
+	_, err = r.DisplayMinimap(vp, 16, 6, "#FFFFFF")
 	if err != nil {
 		t.Fatalf("unexpected error on second call: %v", err)
 	}
 
-	// Cache hit should be shorter (no sixel re-encode, just cursor + cached sixel)
-	// Both should contain Sixel data (cached includes it), but output should match
-	if output1 != output2 {
-		t.Error("second call should return same output from cache")
+	// Cache should remain the same
+	if r.prevSixel != cachedSixel {
+		t.Error("cached sixel should not change on cache hit")
 	}
 }
 
@@ -354,13 +322,16 @@ func TestSixelRenderer_DisplayMinimap_CacheInvalidatedByColorChange(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	firstSixel := r.prevSixel
+
 	// Second call with different border color — should re-encode
-	output, err := r.DisplayMinimap(vp, 16, 6, "#FF0000")
+	_, err = r.DisplayMinimap(vp, 16, 6, "#FF0000")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(output, "\x1bPq") {
-		t.Error("should re-encode Sixel when border color changes")
+
+	if r.prevSixel == firstSixel {
+		t.Error("cached sixel should change when border color changes")
 	}
 }
 
@@ -458,11 +429,4 @@ func TestWriteSixelRLE(t *testing.T) {
 			}
 		})
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
