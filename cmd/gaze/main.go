@@ -59,7 +59,7 @@ func createRenderer(rendererType string) (usecase.RendererPort, error) {
 	case "kitty":
 		return renderer.NewKittyRenderer(), nil
 	case "tmux":
-		return renderer.NewTmuxRenderer(), nil
+		return renderer.NewTmuxRenderer()
 	default:
 		return nil, fmt.Errorf("unknown renderer type %q: supported values are kitty, tmux", rendererType)
 	}
