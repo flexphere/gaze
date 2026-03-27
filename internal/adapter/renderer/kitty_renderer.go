@@ -119,7 +119,12 @@ func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, c
 		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.minimapID)
 	}
 	r.minimapID = atomic.AddUint32(&imageIDCounter, 1)
+	r.prepareMinimapBase(img, cols, rows, cellAspect)
+	return nil
+}
 
+// prepareMinimapBase downscales the image and prepares reusable buffers.
+func (r *KittyRenderer) prepareMinimapBase(img *domain.ImageEntity, cols, rows int, cellAspect float64) {
 	// Calculate pixel dimensions for the minimap.
 	// Use a base cell width and derive height from aspect ratio.
 	const baseCellW = 8.0
@@ -158,8 +163,6 @@ func (r *KittyRenderer) UploadMinimap(img *domain.ImageEntity, cols, rows int, c
 	r.prevIndicator = [4]int{}
 	r.prevBorderColor = ""
 	r.prevCached = false
-
-	return nil
 }
 
 // DisplayMinimap composites the viewport indicator onto the minimap base,

@@ -12,11 +12,12 @@ A terminal image viewer with zoom and pan support, powered by the [Kitty Graphic
 
 ## Supported Terminals
 
-| Terminal | Status |
-|----------|--------|
-| [Kitty](https://sw.kovidgoyal.net/kitty/) | Supported |
-| [Ghostty](https://ghostty.org/) | Supported |
-| [WezTerm](https://wezfurlong.org/wezterm/) | Supported |
+| Terminal                                   | Support                  |
+| ------------------------------------------ | ------------------------ |
+| [Kitty](https://sw.kovidgoyal.net/kitty/)  | Supported                |
+| [Ghostty](https://ghostty.org/)            | Supported                |
+| [WezTerm](https://wezfurlong.org/wezterm/) | Supported                |
+| tmux (with `allow-passthrough on`)         | Experimental (`-r tmux`) |
 
 > Other terminals supporting the Kitty Graphics Protocol should also work.
 
@@ -47,31 +48,35 @@ gaze photo.png
 gaze screenshot.jpg
 gaze animation.gif
 gaze image.webp
+
+# Use inside tmux (requires: tmux set -g allow-passthrough on)
+gaze -r tmux photo.png
+gaze --renderer tmux photo.png
 ```
 
 ## Controls
 
 ### Keyboard
 
-| Key | Action |
-|-----|--------|
-| `h` / `Left` | Pan left |
-| `j` / `Down` | Pan down |
-| `k` / `Up` | Pan up |
-| `l` / `Right` | Pan right |
-| `+` / `=` | Zoom in |
-| `-` / `_` | Zoom out |
-| `f` | Fit to window |
-| `0` / `r` | Reset view |
-| `m` | Toggle minimap |
-| `q` / `Esc` / `Ctrl+C` | Quit |
+| Key                    | Action         |
+| ---------------------- | -------------- |
+| `h` / `Left`           | Pan left       |
+| `j` / `Down`           | Pan down       |
+| `k` / `Up`             | Pan up         |
+| `l` / `Right`          | Pan right      |
+| `+` / `=`              | Zoom in        |
+| `-` / `_`              | Zoom out       |
+| `f`                    | Fit to window  |
+| `0` / `r`              | Reset view     |
+| `m`                    | Toggle minimap |
+| `q` / `Esc` / `Ctrl+C` | Quit           |
 
 ### Mouse
 
-| Action | Effect |
-|--------|--------|
-| Drag | Pan the image |
-| Scroll up | Zoom in (at cursor position) |
+| Action      | Effect                        |
+| ----------- | ----------------------------- |
+| Drag        | Pan the image                 |
+| Scroll up   | Zoom in (at cursor position)  |
 | Scroll down | Zoom out (at cursor position) |
 
 ## Configuration
@@ -120,7 +125,7 @@ internal/
   adapter/
     tui/           Bubbletea TUI (Model/Update/View, KeyMap, StatusBar)
     config/        TOML configuration loader
-    renderer/      Kitty Graphics Protocol implementation
+    renderer/      Kitty Graphics / tmux passthrough protocol implementations
   infrastructure/
     filesystem/    Image file loading (PNG, JPEG, GIF, BMP, TIFF, WebP)
 ```
