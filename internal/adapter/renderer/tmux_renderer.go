@@ -27,29 +27,44 @@ func NewTmuxRenderer() (*TmuxRenderer, error) {
 	if os.Getenv("TMUX") == "" {
 		return nil, fmt.Errorf("tmux renderer requires a tmux session (TMUX environment variable not set)")
 	}
-	top, left := queryTmuxPaneOffset()
+	top, left, err := queryTmuxPaneOffset()
+	if err != nil {
+		return nil, fmt.Errorf("querying tmux pane offset: %w", err)
+	}
 	return &TmuxRenderer{inner: NewKittyRenderer(), paneTop: top, paneLeft: left}, nil
 }
 
 // RefreshPaneOffset re-queries the tmux pane position.
-// Call this on window resize to stay in sync with pane layout changes.
+// On failure, the previous offset is retained to avoid disrupting rendering.
 func (r *TmuxRenderer) RefreshPaneOffset() {
-	r.paneTop, r.paneLeft = queryTmuxPaneOffset()
+	top, left, err := queryTmuxPaneOffset()
+	if err != nil {
+		return // keep previous values
+	}
+	r.paneTop = top
+	r.paneLeft = left
 }
 
 // queryTmuxPaneOffset returns the current pane's top-left corner offset
 // within the outer terminal by querying tmux.
-func queryTmuxPaneOffset() (top, left int) {
+func queryTmuxPaneOffset() (top, left int, err error) {
 	out, err := exec.Command("tmux", "display-message", "-p", "#{pane_top} #{pane_left}").Output()
 	if err != nil {
-		return 0, 0
+		return 0, 0, fmt.Errorf("running tmux display-message: %w", err)
 	}
 	parts := strings.Fields(strings.TrimSpace(string(out)))
-	if len(parts) >= 2 {
-		top, _ = strconv.Atoi(parts[0])
-		left, _ = strconv.Atoi(parts[1])
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("unexpected tmux output: %q", string(out))
 	}
-	return top, left
+	top, err = strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parsing pane_top %q: %w", parts[0], err)
+	}
+	left, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parsing pane_left %q: %w", parts[1], err)
+	}
+	return top, left, nil
 }
 
 // Upload encodes and transmits the image with tmux DCS passthrough wrapping.
@@ -119,9 +134,14 @@ func (r *TmuxRenderer) ClearMinimap() error {
 // positioning sequence (\x1b[...H) immediately preceding a Kitty APC is
 // included inside the same passthrough — with row/col adjusted by the
 // pane offset — so that the image renders inside the correct tmux pane.
+//
+// Uses bulk copies from the input string to avoid re-copying the output
+// buffer when extracting cursor moves.
 func (r *TmuxRenderer) wrapAllKittySequences(s string) string {
 	var out strings.Builder
 	out.Grow(len(s))
+
+	written := 0 // index in s up to which we've flushed to out
 
 	for i := 0; i < len(s); {
 		// Look for Kitty APC start: \x1b_G
@@ -131,9 +151,11 @@ func (r *TmuxRenderer) wrapAllKittySequences(s string) string {
 			if end >= 0 {
 				seqEnd := i + 3 + end + 2 // include \x1b\\
 
-				// Check if a CSI cursor position (\x1b[...H) was just written
-				// to out and pull it into the passthrough with pane offset applied.
-				prefix := r.extractTrailingCursorMove(&out)
+				// Scan backwards in the pending input for a cursor move
+				prefix, flushEnd := r.findCursorMoveInPending(s[written:i])
+
+				// Flush pending bytes up to (but not including) the cursor move
+				out.WriteString(s[written : written+flushEnd])
 
 				// Wrap cursor move + Kitty sequence with cursor save/restore
 				// so that the outer terminal cursor is restored after drawing.
@@ -143,43 +165,42 @@ func (r *TmuxRenderer) wrapAllKittySequences(s string) string {
 				out.WriteString("\x1bPtmux;")
 				out.WriteString(escaped)
 				out.WriteString("\x1b\\")
+
+				written = seqEnd
 				i = seqEnd
 				continue
 			}
 		}
-		out.WriteByte(s[i])
 		i++
 	}
+
+	// Flush remaining
+	out.WriteString(s[written:])
 
 	return out.String()
 }
 
-// extractTrailingCursorMove checks if the builder ends with a CSI cursor
-// position sequence (\x1b[<row>;<col>H or \x1b[H). If found, it removes
-// that sequence from the builder and returns a new cursor move with
-// row and col adjusted by the pane offset.
-func (r *TmuxRenderer) extractTrailingCursorMove(b *strings.Builder) string {
-	s := b.String()
-
-	// Scan backwards for \x1b[...H pattern
-	if len(s) < 2 {
-		return ""
-	}
-	if s[len(s)-1] != 'H' {
-		return ""
+// findCursorMoveInPending scans the pending (not yet flushed) portion of the
+// input for a trailing CSI cursor position sequence (\x1b[<row>;<col>H).
+// If found, returns the adjusted cursor move string and the flush boundary
+// (number of bytes to flush before the cursor move). If not found, returns
+// ("", len(pending)) so the caller flushes everything.
+func (r *TmuxRenderer) findCursorMoveInPending(pending string) (cursorMove string, flushEnd int) {
+	if len(pending) < 2 || pending[len(pending)-1] != 'H' {
+		return "", len(pending)
 	}
 
 	// Walk backwards from the 'H' to find ESC [
-	j := len(s) - 2
-	for j >= 0 && ((s[j] >= '0' && s[j] <= '9') || s[j] == ';') {
+	j := len(pending) - 2
+	for j >= 0 && ((pending[j] >= '0' && pending[j] <= '9') || pending[j] == ';') {
 		j--
 	}
-	if j < 1 || s[j] != '[' || s[j-1] != 0x1b {
-		return ""
+	if j < 1 || pending[j] != '[' || pending[j-1] != 0x1b {
+		return "", len(pending)
 	}
 
 	csiStart := j - 1
-	params := s[j+1 : len(s)-1] // between '[' and 'H'
+	params := pending[j+1 : len(pending)-1] // between '[' and 'H'
 
 	// Parse row;col (default 1;1 for bare \x1b[H)
 	row, col := 1, 1
@@ -195,10 +216,5 @@ func (r *TmuxRenderer) extractTrailingCursorMove(b *strings.Builder) string {
 		}
 	}
 
-	// Rebuild the builder without the cursor sequence
-	b.Reset()
-	b.WriteString(s[:csiStart])
-
-	// Return adjusted cursor move
-	return fmt.Sprintf("\x1b[%d;%dH", row+r.paneTop, col+r.paneLeft)
+	return fmt.Sprintf("\x1b[%d;%dH", row+r.paneTop, col+r.paneLeft), csiStart
 }
