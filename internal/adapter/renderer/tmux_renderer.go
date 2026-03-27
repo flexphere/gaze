@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -21,9 +22,13 @@ type TmuxRenderer struct {
 }
 
 // NewTmuxRenderer creates a TmuxRenderer wrapping a KittyRenderer.
-func NewTmuxRenderer() *TmuxRenderer {
+// Returns an error if not running inside a tmux session.
+func NewTmuxRenderer() (*TmuxRenderer, error) {
+	if os.Getenv("TMUX") == "" {
+		return nil, fmt.Errorf("tmux renderer requires a tmux session (TMUX environment variable not set)")
+	}
 	top, left := queryTmuxPaneOffset()
-	return &TmuxRenderer{inner: NewKittyRenderer(), paneTop: top, paneLeft: left}
+	return &TmuxRenderer{inner: NewKittyRenderer(), paneTop: top, paneLeft: left}, nil
 }
 
 // RefreshPaneOffset re-queries the tmux pane position.
@@ -116,7 +121,7 @@ func (r *TmuxRenderer) ClearMinimap() error {
 // pane offset — so that the image renders inside the correct tmux pane.
 func (r *TmuxRenderer) wrapAllKittySequences(s string) string {
 	var out strings.Builder
-	out.Grow(len(s) * 2)
+	out.Grow(len(s))
 
 	for i := 0; i < len(s); {
 		// Look for Kitty APC start: \x1b_G
@@ -130,8 +135,11 @@ func (r *TmuxRenderer) wrapAllKittySequences(s string) string {
 				// to out and pull it into the passthrough with pane offset applied.
 				prefix := r.extractTrailingCursorMove(&out)
 
+				// Wrap cursor move + Kitty sequence with cursor save/restore
+				// so that the outer terminal cursor is restored after drawing.
 				kittySeq := s[i:seqEnd]
-				escaped := strings.ReplaceAll(prefix+kittySeq, "\x1b", "\x1b\x1b")
+				content := "\x1b7" + prefix + kittySeq + "\x1b8" // DECSC ... DECRC
+				escaped := strings.ReplaceAll(content, "\x1b", "\x1b\x1b")
 				out.WriteString("\x1bPtmux;")
 				out.WriteString(escaped)
 				out.WriteString("\x1b\\")

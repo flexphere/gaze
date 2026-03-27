@@ -6,15 +6,20 @@ import (
 	"testing"
 )
 
+// wrapExpected builds the expected DCS passthrough for a Kitty sequence,
+// including DECSC/DECRC cursor save/restore.
+func wrapExpected(content string) string {
+	withSaveRestore := "\x1b7" + content + "\x1b8"
+	escaped := strings.ReplaceAll(withSaveRestore, "\x1b", "\x1b\x1b")
+	return "\x1bPtmux;" + escaped + "\x1b\\"
+}
+
 func TestWrapAllKittySequences_SingleSequence(t *testing.T) {
 	r := &TmuxRenderer{inner: NewKittyRenderer()}
 
 	input := "\x1b_Ga=p,i=1,q=2\x1b\\"
 	got := r.wrapAllKittySequences(input)
-
-	// The Kitty sequence should be wrapped in DCS passthrough with ESC doubled
-	escaped := strings.ReplaceAll(input, "\x1b", "\x1b\x1b")
-	want := "\x1bPtmux;" + escaped + "\x1b\\"
+	want := wrapExpected(input)
 
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -29,11 +34,7 @@ func TestWrapAllKittySequences_MultipleChunks(t *testing.T) {
 	input := chunk1 + chunk2
 
 	got := r.wrapAllKittySequences(input)
-
-	// Each chunk should be independently wrapped
-	wrap1 := "\x1bPtmux;" + strings.ReplaceAll(chunk1, "\x1b", "\x1b\x1b") + "\x1b\\"
-	wrap2 := "\x1bPtmux;" + strings.ReplaceAll(chunk2, "\x1b", "\x1b\x1b") + "\x1b\\"
-	want := wrap1 + wrap2
+	want := wrapExpected(chunk1) + wrapExpected(chunk2)
 
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -43,7 +44,6 @@ func TestWrapAllKittySequences_MultipleChunks(t *testing.T) {
 func TestWrapAllKittySequences_PreserveNonKittySequences(t *testing.T) {
 	r := &TmuxRenderer{inner: NewKittyRenderer()}
 
-	// \x1b[H (cursor home) should pass through unchanged
 	input := "\x1b[2J" // clear screen — no Kitty sequence
 	got := r.wrapAllKittySequences(input)
 
@@ -62,8 +62,7 @@ func TestWrapAllKittySequences_CursorMoveBeforeKitty(t *testing.T) {
 	// \x1b[H with no offset (paneTop=0, paneLeft=0) becomes \x1b[1;1H
 	cursorMove := "\x1b[1;1H"
 	kittySeq := "\x1b_Ga=p,i=1,q=2\x1b\\"
-	escaped := strings.ReplaceAll(cursorMove+kittySeq, "\x1b", "\x1b\x1b")
-	want := "\x1bPtmux;" + escaped + "\x1b\\"
+	want := wrapExpected(cursorMove + kittySeq)
 
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -79,8 +78,7 @@ func TestWrapAllKittySequences_CursorMoveWithPaneOffset(t *testing.T) {
 	// Row 10+5=15, Col 20+40=60
 	cursorMove := "\x1b[15;60H"
 	kittySeq := "\x1b_Ga=p,i=1,q=2\x1b\\"
-	escaped := strings.ReplaceAll(cursorMove+kittySeq, "\x1b", "\x1b\x1b")
-	want := "\x1bPtmux;" + escaped + "\x1b\\"
+	want := wrapExpected(cursorMove + kittySeq)
 
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -191,12 +189,12 @@ func TestWrapAllKittySequences_MixedUploadAndPlacement(t *testing.T) {
 	got := r.wrapAllKittySequences(input)
 
 	// Upload wrapped without cursor move
-	wrapUpload := "\x1bPtmux;" + strings.ReplaceAll(upload, "\x1b", "\x1b\x1b") + "\x1b\\"
+	wrapUpload := wrapExpected(upload)
 
 	// Placement wrapped with offset cursor move: row 5+2=7, col 3+10=13
 	cursorMove := "\x1b[7;13H"
 	placeSeq := "\x1b_Ga=p,i=1,p=1,c=80,r=24,q=2\x1b\\"
-	wrapPlace := "\x1bPtmux;" + strings.ReplaceAll(cursorMove+placeSeq, "\x1b", "\x1b\x1b") + "\x1b\\"
+	wrapPlace := wrapExpected(cursorMove + placeSeq)
 
 	want := wrapUpload + wrapPlace
 
@@ -210,9 +208,7 @@ func TestWrapAllKittySequences_DeleteCommand(t *testing.T) {
 
 	input := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", 42)
 	got := r.wrapAllKittySequences(input)
-
-	escaped := strings.ReplaceAll(input, "\x1b", "\x1b\x1b")
-	want := "\x1bPtmux;" + escaped + "\x1b\\"
+	want := wrapExpected(input)
 
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
