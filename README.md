@@ -1,6 +1,6 @@
 # gaze
 
-A terminal image viewer with zoom and pan support, powered by the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
+A terminal image viewer with zoom and pan support, powered by the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) and [Sixel](https://en.wikipedia.org/wiki/Sixel).
 
 ## Features
 
@@ -12,13 +12,16 @@ A terminal image viewer with zoom and pan support, powered by the [Kitty Graphic
 
 ## Supported Terminals
 
-| Terminal | Status |
-|----------|--------|
-| [Kitty](https://sw.kovidgoyal.net/kitty/) | Supported |
-| [Ghostty](https://ghostty.org/) | Supported |
-| [WezTerm](https://wezfurlong.org/wezterm/) | Supported |
+| Terminal | Kitty Graphics | Sixel |
+|----------|---------------|-------|
+| [Kitty](https://sw.kovidgoyal.net/kitty/) | Supported | - |
+| [Ghostty](https://ghostty.org/) | Supported | - |
+| [WezTerm](https://wezfurlong.org/wezterm/) | Supported | Supported |
+| [foot](https://codeberg.org/dnkl/foot) | - | Supported |
+| [mlterm](https://github.com/arakiken/mlterm) | - | Supported |
+| xterm (with `-ti vt340`) | - | Supported |
 
-> Other terminals supporting the Kitty Graphics Protocol should also work.
+> Other terminals supporting Kitty Graphics Protocol or Sixel should also work.
 
 ## Installation
 
@@ -47,6 +50,10 @@ gaze photo.png
 gaze screenshot.jpg
 gaze animation.gif
 gaze image.webp
+
+# Use Sixel renderer instead of default Kitty
+gaze -r sixel photo.png
+gaze --renderer sixel photo.png
 ```
 
 ## Controls
@@ -120,7 +127,7 @@ internal/
   adapter/
     tui/           Bubbletea TUI (Model/Update/View, KeyMap, StatusBar)
     config/        TOML configuration loader
-    renderer/      Kitty Graphics Protocol implementation
+    renderer/      Kitty Graphics / Sixel protocol implementations
   infrastructure/
     filesystem/    Image file loading (PNG, JPEG, GIF, BMP, TIFF, WebP)
 ```
