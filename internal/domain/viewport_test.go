@@ -223,6 +223,77 @@ func TestViewport_Zoom_ClampsToMinMax(t *testing.T) {
 	}
 }
 
+func TestViewport_Zoom_DoesNotGoBelowFit(t *testing.T) {
+	tests := []struct {
+		name string
+		zoom func(vp *Viewport)
+	}{
+		{
+			name: "ZoomOut",
+			zoom: func(vp *Viewport) { vp.ZoomOut() },
+		},
+		{
+			name: "ZoomAt",
+			zoom: func(vp *Viewport) { vp.ZoomAt(-0.1, 40, 12) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vp := setupViewport(1000, 800, 80, 24)
+			vp.FitToWindow()
+			fit := vp.ZoomLevel
+
+			for range 5 {
+				tt.zoom(vp)
+			}
+			if vp.ZoomLevel != fit {
+				t.Errorf("ZoomLevel = %f, want fit level %f", vp.ZoomLevel, fit)
+			}
+			if got := vp.ZoomPercentage(); got != 100 {
+				t.Errorf("ZoomPercentage() = %d, want 100", got)
+			}
+
+			// A single zoom-in must take effect immediately.
+			vp.ZoomIn()
+			if got := vp.ZoomPercentage(); got <= 100 {
+				t.Errorf("ZoomPercentage() after ZoomIn = %d, want > 100", got)
+			}
+		})
+	}
+}
+
+func TestViewport_Zoom_MaxZoomBelowFit(t *testing.T) {
+	tests := []struct {
+		name string
+		zoom func(vp *Viewport)
+	}{
+		{
+			name: "ZoomIn",
+			zoom: func(vp *Viewport) { vp.ZoomIn() },
+		},
+		{
+			name: "ZoomAt",
+			zoom: func(vp *Viewport) { vp.ZoomAt(0.1, 40, 12) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vp := setupViewport(1000, 800, 80, 24)
+			vp.maxZoom = 0.5 // lower than fit zoom (0.75)
+			vp.FitToWindow()
+			fit := vp.ZoomLevel
+
+			tt.zoom(vp)
+
+			if vp.ZoomLevel != fit {
+				t.Errorf("ZoomLevel = %f, want fit level %f", vp.ZoomLevel, fit)
+			}
+		})
+	}
+}
+
 func TestViewport_Zoom_PreservesCenter(t *testing.T) {
 	vp := setupViewport(1000, 800, 80, 24)
 	vp.ZoomLevel = 2.0

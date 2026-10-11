@@ -139,11 +139,25 @@ func (v *Viewport) Zoom(delta float64) {
 	centerY := v.OffsetY + v.VisibleHeight()/2
 
 	v.ZoomLevel *= (1 + delta)
-	v.ZoomLevel = clampFloat(v.ZoomLevel, v.minZoom, v.maxZoom)
+	v.ZoomLevel = clampFloat(v.ZoomLevel, v.lowerZoomLimit(), v.upperZoomLimit())
 
 	v.OffsetX = centerX - v.VisibleWidth()/2
 	v.OffsetY = centerY - v.VisibleHeight()/2
 	v.Clamp()
+}
+
+// lowerZoomLimit returns the smallest zoom level reachable by zooming.
+// Zooming out below fitZoom does not change the rendered image (the visible
+// rect is clamped to the whole image), so fitZoom acts as the floor.
+func (v *Viewport) lowerZoomLimit() float64 {
+	return math.Max(v.minZoom, v.fitZoom)
+}
+
+// upperZoomLimit returns the largest zoom level reachable by zooming.
+// It never falls below lowerZoomLimit so that a max_zoom lower than fitZoom
+// cannot shrink the image below the fit level on zoom-in.
+func (v *Viewport) upperZoomLimit() float64 {
+	return math.Max(v.maxZoom, v.lowerZoomLimit())
 }
 
 // ZoomIn increases zoom level by the configured step.
@@ -167,7 +181,7 @@ func (v *Viewport) ZoomAt(delta float64, termX, termY int) {
 	srcY := v.OffsetY + float64(termY)/float64(v.TermHeight)*v.VisibleHeight()
 
 	v.ZoomLevel *= (1 + delta)
-	v.ZoomLevel = clampFloat(v.ZoomLevel, v.minZoom, v.maxZoom)
+	v.ZoomLevel = clampFloat(v.ZoomLevel, v.lowerZoomLimit(), v.upperZoomLimit())
 
 	// Recalculate offset so the point under cursor stays fixed
 	v.OffsetX = srcX - float64(termX)/float64(v.TermWidth)*v.VisibleWidth()
