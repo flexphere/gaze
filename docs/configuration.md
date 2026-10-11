@@ -75,7 +75,7 @@ max_zoom  = 20.0   # Maximum zoom level (2000%)
 |---------|------|---------|-------------|
 | `zoom_step` | float | `0.1` | Zoom change per keyboard press. `0.1` = 10% per press |
 | `pan_step` | float | `0.05` | Pan distance as fraction of visible area. `0.05` = 5% per press |
-| `min_zoom` | float | `0.1` | Minimum zoom level. `0.1` = 10% (zoomed out) |
+| `min_zoom` | float | `0.1` | Minimum zoom level. `0.1` = 10% (zoomed out). Zooming out stops at the fit-to-window level even if `min_zoom` is lower |
 | `max_zoom` | float | `20.0` | Maximum zoom level. `20.0` = 2000% (zoomed in) |
 
 ## Examples
