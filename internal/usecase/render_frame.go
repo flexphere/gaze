@@ -48,7 +48,7 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 		uc.uploadedFrame = 0
 	}
 
-	if img.IsAnimated() && uc.frame != uc.uploadedFrame && uc.frame < len(img.Frames) {
+	if img.IsAnimated() && uc.frame != uc.uploadedFrame && uc.frame >= 0 && uc.frame < len(img.Frames) {
 		if err := uc.renderer.UploadFrame(img.Frames[uc.frame].Image); err != nil {
 			return "", fmt.Errorf("uploading animation frame: %w", err)
 		}

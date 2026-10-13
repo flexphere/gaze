@@ -521,6 +521,13 @@ func TestRenderFrameUseCase_Execute_AnimationFrames(t *testing.T) {
 			wantLastFrame:      -1,
 		},
 		{
+			name:               "negative frame is ignored",
+			img:                domain.NewAnimatedImageEntity(frames, "anim.gif", "gif"),
+			frameSeq:           []int{-1},
+			wantUploadFrameCnt: 0,
+			wantLastFrame:      -1,
+		},
+		{
 			name:               "static image never uploads frames",
 			img:                domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 100, 100)), "test.png", "png"),
 			frameSeq:           []int{0, 1},
