@@ -37,6 +37,19 @@ func (m Model) handleFrameTick(msg frameTickMsg) (tea.Model, tea.Cmd) {
 	return m, m.frameTick()
 }
 
+func (m Model) toggleAnimation() (tea.Model, tea.Cmd) {
+	if !m.image.IsAnimated() {
+		return m, nil
+	}
+
+	m.paused = !m.paused
+	m.animGen++
+	if m.paused {
+		return m, nil
+	}
+	return m, m.frameTick()
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -86,6 +99,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vpCtrl.FitToWindow(m.viewport)
 	case key.Matches(msg, m.keymap.ToggleMinimap):
 		m.renderFrame.SetMinimapEnabled(!m.renderFrame.MinimapEnabled())
+	case key.Matches(msg, m.keymap.ToggleAnimation):
+		return m.toggleAnimation()
 	default:
 		return m, nil
 	}

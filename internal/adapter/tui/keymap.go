@@ -8,16 +8,17 @@ import (
 
 // KeyMap defines all key bindings for the application.
 type KeyMap struct {
-	PanUp         key.Binding
-	PanDown       key.Binding
-	PanLeft       key.Binding
-	PanRight      key.Binding
-	ZoomIn        key.Binding
-	ZoomOut       key.Binding
-	ResetView     key.Binding
-	FitToWindow   key.Binding
-	ToggleMinimap key.Binding
-	Quit          key.Binding
+	PanUp           key.Binding
+	PanDown         key.Binding
+	PanLeft         key.Binding
+	PanRight        key.Binding
+	ZoomIn          key.Binding
+	ZoomOut         key.Binding
+	ResetView       key.Binding
+	FitToWindow     key.Binding
+	ToggleMinimap   key.Binding
+	ToggleAnimation key.Binding
+	Quit            key.Binding
 }
 
 // NewKeyMap creates a KeyMap from configuration.
@@ -58,6 +59,10 @@ func NewKeyMap(cfg domain.KeyBindingConfig) KeyMap {
 		ToggleMinimap: key.NewBinding(
 			key.WithKeys(cfg.ToggleMinimap...),
 			key.WithHelp("m", "toggle minimap"),
+		),
+		ToggleAnimation: key.NewBinding(
+			key.WithKeys(cfg.ToggleAnimation...),
+			key.WithHelp("space", "pause/resume animation"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys(cfg.Quit...),

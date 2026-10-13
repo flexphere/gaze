@@ -2,16 +2,17 @@ package domain
 
 // KeyBindingConfig holds the key strings for each action.
 type KeyBindingConfig struct {
-	PanUp         []string
-	PanDown       []string
-	PanLeft       []string
-	PanRight      []string
-	ZoomIn        []string
-	ZoomOut       []string
-	ResetView     []string
-	FitToWindow   []string
-	ToggleMinimap []string
-	Quit          []string
+	PanUp           []string
+	PanDown         []string
+	PanLeft         []string
+	PanRight        []string
+	ZoomIn          []string
+	ZoomOut         []string
+	ResetView       []string
+	FitToWindow     []string
+	ToggleMinimap   []string
+	ToggleAnimation []string
+	Quit            []string
 }
 
 // MouseConfig holds mouse behavior settings.
@@ -48,16 +49,17 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		KeyBindings: KeyBindingConfig{
-			PanUp:         []string{"k", "up"},
-			PanDown:       []string{"j", "down"},
-			PanLeft:       []string{"h", "left"},
-			PanRight:      []string{"l", "right"},
-			ZoomIn:        []string{"+", "="},
-			ZoomOut:       []string{"-", "_"},
-			ResetView:     []string{"0", "r"},
-			FitToWindow:   []string{"f"},
-			ToggleMinimap: []string{"m"},
-			Quit:          []string{"q", "ctrl+c", "esc"},
+			PanUp:           []string{"k", "up"},
+			PanDown:         []string{"j", "down"},
+			PanLeft:         []string{"h", "left"},
+			PanRight:        []string{"l", "right"},
+			ZoomIn:          []string{"+", "="},
+			ZoomOut:         []string{"-", "_"},
+			ResetView:       []string{"0", "r"},
+			FitToWindow:     []string{"f"},
+			ToggleMinimap:   []string{"m"},
+			ToggleAnimation: []string{" "},
+			Quit:            []string{"q", "ctrl+c", "esc"},
 		},
 		Mouse: MouseConfig{
 			DragToPan:         true,
