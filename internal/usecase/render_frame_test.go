@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"testing"
+	"time"
 
 	"github.com/flexphere/gaze/internal/domain"
 )
@@ -14,6 +15,10 @@ type mockRenderer struct {
 	displayErr error
 	uploadCnt  int
 	displayCnt int
+
+	uploadFrameCnt int
+	uploadFrameErr error
+	lastFrame      image.Image
 
 	minimapUploadCnt  int
 	minimapUploadErr  error
@@ -27,6 +32,12 @@ type mockRenderer struct {
 func (m *mockRenderer) Upload(_ *domain.ImageEntity) error {
 	m.uploadCnt++
 	return m.uploadErr
+}
+
+func (m *mockRenderer) UploadFrame(src image.Image) error {
+	m.uploadFrameCnt++
+	m.lastFrame = src
+	return m.uploadFrameErr
 }
 
 func (m *mockRenderer) Display(_ *domain.Viewport) (string, error) {
@@ -471,5 +482,102 @@ func TestRenderFrameUseCase_Execute_MinimapClearedOnZoomOut(t *testing.T) {
 	}
 	if renderer.minimapClearCnt != 1 {
 		t.Errorf("minimap clear should not be called again, got %d", renderer.minimapClearCnt)
+	}
+}
+
+func TestRenderFrameUseCase_Execute_AnimationFrames(t *testing.T) {
+	frames := []domain.Frame{
+		{Image: image.NewRGBA(image.Rect(0, 0, 100, 100)), Delay: 100 * time.Millisecond},
+		{Image: image.NewRGBA(image.Rect(0, 0, 100, 100)), Delay: 100 * time.Millisecond},
+		{Image: image.NewRGBA(image.Rect(0, 0, 100, 100)), Delay: 100 * time.Millisecond},
+	}
+
+	tests := []struct {
+		name               string
+		img                *domain.ImageEntity
+		frameSeq           []int // SetFrame argument before each Execute
+		wantUploadFrameCnt int
+		wantLastFrame      int // index into frames, -1 if no frame upload expected
+	}{
+		{
+			name:               "first frame is covered by the initial upload",
+			img:                domain.NewAnimatedImageEntity(frames, "anim.gif", "gif"),
+			frameSeq:           []int{0, 0},
+			wantUploadFrameCnt: 0,
+			wantLastFrame:      -1,
+		},
+		{
+			name:               "uploads only when the frame changes",
+			img:                domain.NewAnimatedImageEntity(frames, "anim.gif", "gif"),
+			frameSeq:           []int{0, 1, 1, 2, 0},
+			wantUploadFrameCnt: 3,
+			wantLastFrame:      0,
+		},
+		{
+			name:               "out of range frame is ignored",
+			img:                domain.NewAnimatedImageEntity(frames, "anim.gif", "gif"),
+			frameSeq:           []int{5},
+			wantUploadFrameCnt: 0,
+			wantLastFrame:      -1,
+		},
+		{
+			name:               "static image never uploads frames",
+			img:                domain.NewImageEntity(image.NewRGBA(image.Rect(0, 0, 100, 100)), "test.png", "png"),
+			frameSeq:           []int{0, 1},
+			wantUploadFrameCnt: 0,
+			wantLastFrame:      -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			renderer := &mockRenderer{displayOut: "frame"}
+			uc := NewRenderFrameUseCase(renderer, domain.MinimapConfig{})
+			vp := domain.NewViewport(domain.ViewportConfig{
+				ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+			})
+			vp.ImgWidth = 100
+			vp.ImgHeight = 100
+			vp.TermWidth = 80
+			vp.TermHeight = 24
+
+			for _, f := range tt.frameSeq {
+				uc.SetFrame(f)
+				if _, err := uc.Execute(tt.img, vp); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+
+			if renderer.uploadCnt != 1 {
+				t.Errorf("upload called %d times, want 1", renderer.uploadCnt)
+			}
+			if renderer.uploadFrameCnt != tt.wantUploadFrameCnt {
+				t.Errorf("UploadFrame called %d times, want %d", renderer.uploadFrameCnt, tt.wantUploadFrameCnt)
+			}
+			if tt.wantLastFrame >= 0 && renderer.lastFrame != frames[tt.wantLastFrame].Image {
+				t.Errorf("last uploaded frame is not frames[%d]", tt.wantLastFrame)
+			}
+		})
+	}
+}
+
+func TestRenderFrameUseCase_Execute_UploadFrameError(t *testing.T) {
+	frames := []domain.Frame{
+		{Image: image.NewRGBA(image.Rect(0, 0, 10, 10))},
+		{Image: image.NewRGBA(image.Rect(0, 0, 10, 10))},
+	}
+	renderer := &mockRenderer{uploadFrameErr: errors.New("frame failed")}
+	uc := NewRenderFrameUseCase(renderer, domain.MinimapConfig{})
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+
+	uc.SetFrame(1)
+	_, err := uc.Execute(domain.NewAnimatedImageEntity(frames, "anim.gif", "gif"), vp)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if renderer.displayCnt != 0 {
+		t.Errorf("Display should not be called after UploadFrame fails, got %d calls", renderer.displayCnt)
 	}
 }

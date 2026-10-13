@@ -15,6 +15,9 @@ func TestDefaultConfig(t *testing.T) {
 		if len(cfg.KeyBindings.ZoomIn) == 0 {
 			t.Error("ZoomIn keys should not be empty")
 		}
+		if len(cfg.KeyBindings.ToggleAnimation) != 1 || cfg.KeyBindings.ToggleAnimation[0] != " " {
+			t.Errorf("ToggleAnimation = %q, want [\" \"]", cfg.KeyBindings.ToggleAnimation)
+		}
 	})
 
 	t.Run("mouse defaults", func(t *testing.T) {
