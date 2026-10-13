@@ -73,6 +73,7 @@ func (r *TmuxRenderer) Upload(img *domain.ImageEntity) error {
 	r.inner.imageID = atomic.AddUint32(&imageIDCounter, 1)
 	r.inner.imgW = img.Width
 	r.inner.imgH = img.Height
+	r.inner.frontSrc = img.Source
 
 	seq, err := buildUploadSequence(r.inner.imageID, img.Source)
 	if err != nil {

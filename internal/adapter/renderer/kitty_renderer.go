@@ -47,6 +47,7 @@ type KittyRenderer struct {
 	// Animation frame state
 	framePayloads map[image.Image]framePayload // encoded once per frame, reused every loop
 	nextFrameAt   time.Time                    // frames before this time are skipped
+	frontSrc      image.Image                  // frame shown under imageID
 	now           func() time.Time             // replaceable clock for tests
 }
 
@@ -66,6 +67,7 @@ func (r *KittyRenderer) Upload(img *domain.ImageEntity) error {
 	r.imageID = atomic.AddUint32(&imageIDCounter, 1)
 	r.imgW = img.Width
 	r.imgH = img.Height
+	r.frontSrc = img.Source
 
 	return r.uploadImage(r.imageID, img.Source)
 }
@@ -94,8 +96,17 @@ func (r *KittyRenderer) UploadFrame(src image.Image) error {
 
 // buildFrameUpload builds the upload sequence for the back buffer and swaps
 // the front and back image IDs. It returns an empty string, leaving the
-// displayed frame as is, when the frame is skipped by the transfer budget.
+// displayed frame as is, when the frame is skipped by the transfer budget or
+// is already displayed.
 func (r *KittyRenderer) buildFrameUpload(src image.Image) (string, error) {
+	// Frames skipped by the budget are still counted as shown by the caller,
+	// so the displayed frame can come around again. Resending it would spend
+	// the budget without changing the picture and, when the loop length lines
+	// up with the wait, freeze the animation on that frame.
+	if src == r.frontSrc {
+		return "", nil
+	}
+
 	now := r.now()
 	if now.Before(r.nextFrameAt) {
 		return "", nil
@@ -111,6 +122,7 @@ func (r *KittyRenderer) buildFrameUpload(src image.Image) (string, error) {
 	}
 	seq := buildChunkedUploadSequence(r.spareID, payload)
 	r.imageID, r.spareID = r.spareID, r.imageID
+	r.frontSrc = src
 	r.nextFrameAt = now.Add(time.Duration(len(seq)) * time.Second / maxFrameBytesPerSecond)
 	return seq, nil
 }

@@ -575,7 +575,10 @@ func TestKittyRenderer_FrameDoubleBuffer(t *testing.T) {
 	})
 	vp.SetImageSize(4, 3)
 	vp.SetTerminalSize(80, 24)
-	frame := image.NewRGBA(image.Rect(0, 0, 4, 3))
+	frames := []image.Image{
+		image.NewRGBA(image.Rect(0, 0, 4, 3)),
+		image.NewRGBA(image.Rect(0, 0, 4, 3)),
+	}
 
 	clock := time.Unix(0, 0)
 	r := NewKittyRenderer()
@@ -593,7 +596,7 @@ func TestKittyRenderer_FrameDoubleBuffer(t *testing.T) {
 
 	front := r.imageID
 	for i := 0; i < 3; i++ {
-		seq, err := r.buildFrameUpload(frame)
+		seq, err := r.buildFrameUpload(frames[i%len(frames)])
 		if err != nil {
 			t.Fatalf("frame %d: unexpected error: %v", i, err)
 		}
@@ -686,5 +689,54 @@ func TestKittyRenderer_FramePayloadCache(t *testing.T) {
 	}
 	if first != second {
 		t.Error("payload should be served from the cache on the second call")
+	}
+}
+
+func TestKittyRenderer_DisplayedFrameDoesNotConsumeBudget(t *testing.T) {
+	newNoise := func(seed int) *image.RGBA {
+		img := image.NewRGBA(image.Rect(0, 0, 128, 128))
+		for i := range img.Pix {
+			img.Pix[i] = byte(i*131 + i/7 + seed)
+		}
+		return img
+	}
+	f0, f1, f2 := newNoise(0), newNoise(1), newNoise(2)
+
+	clock := time.Unix(0, 0)
+	r := NewKittyRenderer()
+	r.now = func() time.Time { return clock }
+	r.imageID = 100
+	r.frontSrc = f0 // as if Upload had sent the first frame
+
+	// The loop goes f1, f2, f0, f1, ... while each sent frame makes the next
+	// ones wait. Skipped frames still advance the caller's frame index.
+	steps := []struct {
+		name     string
+		src      image.Image
+		advance  bool // move the clock past the budget wait before this step
+		wantSent bool
+	}{
+		{name: "f1 is sent", src: f1, wantSent: true},
+		{name: "f2 is skipped while waiting", src: f2, wantSent: false},
+		{name: "f0 is skipped while waiting", src: f0, wantSent: false},
+		{name: "displayed f1 is not resent after the wait", src: f1, advance: true, wantSent: false},
+		{name: "f2 uses the budget f1 did not spend", src: f2, wantSent: true},
+	}
+
+	var wait time.Duration
+	for _, st := range steps {
+		if st.advance {
+			clock = clock.Add(wait)
+		}
+		seq, err := r.buildFrameUpload(st.src)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", st.name, err)
+		}
+		if sent := seq != ""; sent != st.wantSent {
+			t.Fatalf("%s: sent = %v, want %v", st.name, sent, st.wantSent)
+		}
+		if seq != "" {
+			wait = time.Duration(len(seq)) * time.Second / maxFrameBytesPerSecond
+		}
 	}
 }
