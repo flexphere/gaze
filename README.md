@@ -8,6 +8,7 @@ A terminal image viewer with zoom and pan support, powered by the [Kitty Graphic
 - **Keyboard & mouse controls** - Vim-style keys, arrow keys, mouse drag-to-pan, scroll-to-zoom
 - **Configurable keybindings** - Customize all key mappings via TOML config file
 - **Multiple image formats** - PNG, JPEG, GIF, BMP, TIFF, WebP
+- **Animated GIF playback** - Animated GIFs loop in interactive mode; zoom and pan work while playing. Large GIFs drop frames to keep the terminal responsive
 - **Clean Architecture** - Modular design for easy extension and testing
 
 ## Supported Terminals
@@ -58,18 +59,19 @@ gaze --renderer tmux photo.png
 
 ### Keyboard
 
-| Key                    | Action         |
-| ---------------------- | -------------- |
-| `h` / `Left`           | Pan left       |
-| `j` / `Down`           | Pan down       |
-| `k` / `Up`             | Pan up         |
-| `l` / `Right`          | Pan right      |
-| `+` / `=`              | Zoom in        |
-| `-` / `_`              | Zoom out       |
-| `f`                    | Fit to window  |
-| `0` / `r`              | Reset view     |
-| `m`                    | Toggle minimap |
-| `q` / `Esc` / `Ctrl+C` | Quit           |
+| Key                    | Action                    |
+| ---------------------- | ------------------------- |
+| `h` / `Left`           | Pan left                  |
+| `j` / `Down`           | Pan down                  |
+| `k` / `Up`             | Pan up                    |
+| `l` / `Right`          | Pan right                 |
+| `+` / `=`              | Zoom in                   |
+| `-` / `_`              | Zoom out                  |
+| `f`                    | Fit to window             |
+| `0` / `r`              | Reset view                |
+| `m`                    | Toggle minimap            |
+| `Space`                | Pause/resume animated GIF |
+| `q` / `Esc` / `Ctrl+C` | Quit                      |
 
 ### Mouse
 
@@ -94,6 +96,7 @@ zoom_out  = ["-", "_"]
 reset_view = ["0", "r"]
 fit_to_window = ["f"]
 toggle_minimap = ["m"]
+toggle_animation = [" "]
 quit      = ["q", "ctrl+c", "esc"]
 
 [mouse]

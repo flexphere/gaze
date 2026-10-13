@@ -2,7 +2,9 @@ package tui
 
 import (
 	"image"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,6 +16,8 @@ import (
 type mockRenderFrame struct {
 	output         string
 	minimapEnabled bool
+	frame          int
+	setFrameCnt    int
 }
 
 func (m *mockRenderFrame) Execute(_ *domain.ImageEntity, _ *domain.Viewport) (string, error) {
@@ -26,6 +30,11 @@ func (m *mockRenderFrame) SetMinimapEnabled(enabled bool) {
 
 func (m *mockRenderFrame) MinimapEnabled() bool {
 	return m.minimapEnabled
+}
+
+func (m *mockRenderFrame) SetFrame(index int) {
+	m.frame = index
+	m.setFrameCnt++
 }
 
 func newTestModel() Model {
@@ -246,5 +255,142 @@ func TestKeyMap_NewKeyMap(t *testing.T) {
 	}
 	if !key.Matches(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}}, km.ZoomIn) {
 		t.Error("+ should match ZoomIn binding")
+	}
+}
+
+func newAnimatedTestModel(frameCount int) Model {
+	cfg := domain.DefaultConfig()
+	frames := make([]domain.Frame, frameCount)
+	for i := range frames {
+		frames[i] = domain.Frame{
+			Image: image.NewRGBA(image.Rect(0, 0, 800, 600)),
+			Delay: 100 * time.Millisecond,
+		}
+	}
+	img := domain.NewAnimatedImageEntity(frames, "anim.gif", "gif")
+
+	vpCtrl := usecase.NewViewportControlUseCase()
+	renderer := &mockRenderFrame{output: "rendered", minimapEnabled: cfg.Minimap.Enabled}
+
+	m := NewModel(img, cfg, vpCtrl, renderer)
+	m.viewport.SetTerminalSize(80, 24)
+	m.ready = true
+	return m
+}
+
+var spaceKey = tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
+
+func TestInit_Animation(t *testing.T) {
+	tests := []struct {
+		name    string
+		model   Model
+		wantCmd bool
+	}{
+		{name: "static image does not tick", model: newTestModel(), wantCmd: false},
+		{name: "animated image starts ticking", model: newAnimatedTestModel(3), wantCmd: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.model.Init() != nil; got != tt.wantCmd {
+				t.Errorf("Init() returned cmd = %v, want %v", got, tt.wantCmd)
+			}
+		})
+	}
+}
+
+func TestUpdate_FrameTick(t *testing.T) {
+	tests := []struct {
+		name          string
+		startFrame    int
+		paused        bool
+		msgGen        int
+		wantFrame     int
+		wantCmd       bool
+		wantSetFrames int
+	}{
+		{name: "advances to next frame", startFrame: 0, wantFrame: 1, wantCmd: true, wantSetFrames: 1},
+		{name: "wraps around after last frame", startFrame: 2, wantFrame: 0, wantCmd: true, wantSetFrames: 1},
+		{name: "ignored while paused", startFrame: 1, paused: true, wantFrame: 1, wantCmd: false},
+		{name: "stale generation is ignored", startFrame: 1, msgGen: -1, wantFrame: 1, wantCmd: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newAnimatedTestModel(3)
+			m.frameIndex = tt.startFrame
+			m.paused = tt.paused
+
+			updated, cmd := m.Update(frameTickMsg{gen: m.animGen + tt.msgGen})
+			um := updated.(Model)
+			renderer := um.renderFrame.(*mockRenderFrame)
+
+			if um.frameIndex != tt.wantFrame {
+				t.Errorf("frameIndex = %d, want %d", um.frameIndex, tt.wantFrame)
+			}
+			if (cmd != nil) != tt.wantCmd {
+				t.Errorf("returned cmd = %v, want %v", cmd != nil, tt.wantCmd)
+			}
+			if renderer.setFrameCnt != tt.wantSetFrames {
+				t.Errorf("SetFrame called %d times, want %d", renderer.setFrameCnt, tt.wantSetFrames)
+			}
+			if tt.wantSetFrames > 0 && renderer.frame != tt.wantFrame {
+				t.Errorf("SetFrame(%d), want SetFrame(%d)", renderer.frame, tt.wantFrame)
+			}
+		})
+	}
+}
+
+func TestUpdate_ToggleAnimation(t *testing.T) {
+	m := newAnimatedTestModel(3)
+
+	// Pause
+	updated, cmd := m.Update(spaceKey)
+	um := updated.(Model)
+	if !um.paused {
+		t.Fatal("should be paused after first toggle")
+	}
+	if cmd != nil {
+		t.Error("pausing should not schedule a tick")
+	}
+	if !strings.Contains(um.statusBar(), "PAUSED") {
+		t.Error("status bar should show PAUSED while paused")
+	}
+
+	// Resume
+	updated, cmd = um.Update(spaceKey)
+	um = updated.(Model)
+	if um.paused {
+		t.Fatal("should be resumed after second toggle")
+	}
+	if cmd == nil {
+		t.Error("resuming should schedule a tick")
+	}
+	if strings.Contains(um.statusBar(), "PAUSED") {
+		t.Error("status bar should not show PAUSED while playing")
+	}
+
+	// The tick scheduled before pausing belongs to an old generation and must
+	// not start a second tick chain.
+	updated, cmd = um.Update(frameTickMsg{gen: m.animGen})
+	um = updated.(Model)
+	if cmd != nil {
+		t.Error("tick from before the toggle should be ignored")
+	}
+	if um.frameIndex != 0 {
+		t.Errorf("frameIndex = %d, want 0", um.frameIndex)
+	}
+}
+
+func TestUpdate_ToggleAnimation_StaticImage(t *testing.T) {
+	m := newTestModel()
+
+	updated, cmd := m.Update(spaceKey)
+	um := updated.(Model)
+	if um.paused {
+		t.Error("static image should not be paused")
+	}
+	if cmd != nil {
+		t.Error("static image should not schedule a tick")
 	}
 }

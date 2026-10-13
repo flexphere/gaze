@@ -3,6 +3,7 @@ package domain
 import (
 	"image"
 	"testing"
+	"time"
 )
 
 func TestNewImageEntity(t *testing.T) {
@@ -63,6 +64,51 @@ func TestNewImageEntity(t *testing.T) {
 			}
 			if entity.Source == nil {
 				t.Error("Source is nil")
+			}
+			if entity.IsAnimated() {
+				t.Error("IsAnimated() = true, want false for static image")
+			}
+		})
+	}
+}
+
+func TestNewAnimatedImageEntity(t *testing.T) {
+	newFrame := func(delay time.Duration) Frame {
+		return Frame{Image: image.NewRGBA(image.Rect(0, 0, 40, 30)), Delay: delay}
+	}
+
+	tests := []struct {
+		name         string
+		frames       []Frame
+		wantAnimated bool
+	}{
+		{
+			name:         "single frame",
+			frames:       []Frame{newFrame(100 * time.Millisecond)},
+			wantAnimated: false,
+		},
+		{
+			name:         "multiple frames",
+			frames:       []Frame{newFrame(100 * time.Millisecond), newFrame(200 * time.Millisecond)},
+			wantAnimated: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entity := NewAnimatedImageEntity(tt.frames, "anim.gif", "gif")
+
+			if entity.Source != tt.frames[0].Image {
+				t.Error("Source should be the first frame")
+			}
+			if entity.Width != 40 || entity.Height != 30 {
+				t.Errorf("size = %dx%d, want 40x30", entity.Width, entity.Height)
+			}
+			if len(entity.Frames) != len(tt.frames) {
+				t.Errorf("len(Frames) = %d, want %d", len(entity.Frames), len(tt.frames))
+			}
+			if got := entity.IsAnimated(); got != tt.wantAnimated {
+				t.Errorf("IsAnimated() = %v, want %v", got, tt.wantAnimated)
 			}
 		})
 	}

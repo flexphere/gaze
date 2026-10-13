@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"os/exec"
 	"strconv"
@@ -72,12 +73,26 @@ func (r *TmuxRenderer) Upload(img *domain.ImageEntity) error {
 	r.inner.imageID = atomic.AddUint32(&imageIDCounter, 1)
 	r.inner.imgW = img.Width
 	r.inner.imgH = img.Height
+	r.inner.frontSrc = img.Source
 
 	seq, err := buildUploadSequence(r.inner.imageID, img.Source)
 	if err != nil {
 		return err
 	}
 	fmt.Print(r.wrapAllKittySequences(seq))
+	return nil
+}
+
+// UploadFrame transmits an animation frame into the back buffer image with
+// tmux DCS passthrough wrapping. See KittyRenderer.UploadFrame.
+func (r *TmuxRenderer) UploadFrame(src image.Image) error {
+	seq, err := r.inner.buildFrameUpload(src)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(os.Stdout, r.wrapAllKittySequences(seq)); err != nil {
+		return fmt.Errorf("writing frame upload: %w", err)
+	}
 	return nil
 }
 
@@ -94,6 +109,10 @@ func (r *TmuxRenderer) Display(vp *domain.Viewport) (string, error) {
 func (r *TmuxRenderer) Clear() error {
 	if r.inner.imageID > 0 {
 		seq := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.inner.imageID)
+		fmt.Print(r.wrapAllKittySequences(seq))
+	}
+	if r.inner.spareID > 0 {
+		seq := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.inner.spareID)
 		fmt.Print(r.wrapAllKittySequences(seq))
 	}
 	return nil

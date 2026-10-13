@@ -31,6 +31,7 @@ func TestTOMLLoader_Load_FullConfig(t *testing.T) {
 pan_up = ["w"]
 pan_down = ["s"]
 zoom_in = ["z"]
+toggle_animation = ["p"]
 quit = ["x"]
 
 [mouse]
@@ -57,6 +58,9 @@ pan_step = 0.1
 	}
 	if len(cfg.KeyBindings.Quit) != 1 || cfg.KeyBindings.Quit[0] != "x" {
 		t.Errorf("Quit = %v, want [x]", cfg.KeyBindings.Quit)
+	}
+	if len(cfg.KeyBindings.ToggleAnimation) != 1 || cfg.KeyBindings.ToggleAnimation[0] != "p" {
+		t.Errorf("ToggleAnimation = %v, want [p]", cfg.KeyBindings.ToggleAnimation)
 	}
 
 	// Defaults preserved for unset keys

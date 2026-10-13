@@ -22,6 +22,7 @@ zoom_in      = ["+", "="]
 zoom_out     = ["-", "_"]
 reset_view   = ["0", "r"]
 fit_to_window = ["f"]
+toggle_animation = [" "]
 quit         = ["q", "ctrl+c", "esc"]
 ```
 
@@ -30,6 +31,7 @@ quit         = ["q", "ctrl+c", "esc"]
 - Single characters: `"k"`, `"f"`, `"+"`, `"-"`
 - Arrow keys: `"up"`, `"down"`, `"left"`, `"right"`
 - Special keys: `"esc"`, `"enter"`, `"tab"`, `"backspace"`
+- Space: `" "`
 - Modifier combinations: `"ctrl+c"`, `"ctrl+q"`
 
 ### Defaults
@@ -44,6 +46,7 @@ quit         = ["q", "ctrl+c", "esc"]
 | Zoom out | `-`, `_` |
 | Reset view | `0`, `r` |
 | Fit to window | `f` |
+| Pause/resume animated GIF | `Space` |
 | Quit | `q`, `Ctrl+C`, `Esc` |
 
 ## Mouse

@@ -1,10 +1,16 @@
 package renderer
 
 import (
+	"bytes"
+	"compress/zlib"
+	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flexphere/gaze/internal/domain"
 )
@@ -472,5 +478,265 @@ func TestParseHexColor(t *testing.T) {
 				t.Errorf("parseHexColor(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEncodeFramePayload(t *testing.T) {
+	flat := image.NewRGBA(image.Rect(0, 0, 40, 30))
+	for i := range flat.Pix {
+		flat.Pix[i] = 0x80
+	}
+
+	tests := []struct {
+		name       string
+		src        image.Image
+		wantFormat string
+		wantPix    []byte // expected decompressed pixels, nil to skip
+	}{
+		{
+			name:       "RGBA frame is sent as zlib-compressed raw pixels",
+			src:        flat,
+			wantFormat: "f=32,s=40,v=30,o=z",
+			wantPix:    flat.Pix,
+		},
+		{
+			name:       "non-RGBA frame falls back to PNG",
+			src:        image.NewGray(image.Rect(0, 0, 4, 3)),
+			wantFormat: "f=100",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := encodeFramePayload(tt.src)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if p.format != tt.wantFormat {
+				t.Errorf("format = %q, want %q", p.format, tt.wantFormat)
+			}
+			if tt.wantPix == nil {
+				return
+			}
+			raw, err := base64.StdEncoding.DecodeString(p.encoded)
+			if err != nil {
+				t.Fatalf("decoding base64: %v", err)
+			}
+			if len(raw) >= len(tt.wantPix) {
+				t.Errorf("compressed size %d should be smaller than raw size %d", len(raw), len(tt.wantPix))
+			}
+			zr, err := zlib.NewReader(bytes.NewReader(raw))
+			if err != nil {
+				t.Fatalf("opening zlib stream: %v", err)
+			}
+			got, err := io.ReadAll(zr)
+			if err != nil {
+				t.Fatalf("decompressing: %v", err)
+			}
+			if !bytes.Equal(got, tt.wantPix) {
+				t.Error("decompressed pixels do not match the frame")
+			}
+		})
+	}
+}
+
+func TestBuildChunkedUploadSequence(t *testing.T) {
+	tests := []struct {
+		name       string
+		encodedLen int
+		wantChunks int
+	}{
+		{name: "single chunk", encodedLen: 100, wantChunks: 1},
+		{name: "exactly one chunk", encodedLen: 4096, wantChunks: 1},
+		{name: "multiple chunks", encodedLen: 4096*2 + 1, wantChunks: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := framePayload{format: "f=32,s=1,v=1,o=z", encoded: strings.Repeat("A", tt.encodedLen)}
+			got := buildChunkedUploadSequence(9, p)
+
+			if !strings.HasPrefix(got, "\x1b_Gi=9,f=32,s=1,v=1,o=z,a=t,t=d,q=2,") {
+				t.Errorf("first chunk header is wrong: %q", got[:min(len(got), 60)])
+			}
+			if n := strings.Count(got, "\x1b_G"); n != tt.wantChunks {
+				t.Errorf("chunk count = %d, want %d", n, tt.wantChunks)
+			}
+			if n := strings.Count(got, "m=0;"); n != 1 {
+				t.Errorf("exactly one final chunk (m=0) expected, got %d", n)
+			}
+		})
+	}
+}
+
+func TestKittyRenderer_FrameDoubleBuffer(t *testing.T) {
+	vp := domain.NewViewport(domain.ViewportConfig{
+		ZoomStep: 0.1, PanStep: 0.05, MinZoom: 0.1, MaxZoom: 20.0,
+	})
+	vp.SetImageSize(4, 3)
+	vp.SetTerminalSize(80, 24)
+	frames := []image.Image{
+		image.NewRGBA(image.Rect(0, 0, 4, 3)),
+		image.NewRGBA(image.Rect(0, 0, 4, 3)),
+	}
+
+	clock := time.Unix(0, 0)
+	r := NewKittyRenderer()
+	r.now = func() time.Time { return clock }
+	r.imageID = 100 // as if Upload had been called
+
+	// Static image: no back buffer, so Display must not delete anything.
+	out, err := r.Display(vp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(out, "a=d") {
+		t.Errorf("static display should not delete placements, got %q", out)
+	}
+
+	front := r.imageID
+	for i := 0; i < 3; i++ {
+		seq, err := r.buildFrameUpload(frames[i%len(frames)])
+		if err != nil {
+			t.Fatalf("frame %d: unexpected error: %v", i, err)
+		}
+		back := r.spareID
+		if back != front {
+			t.Fatalf("frame %d: spareID = %d, want previous front %d", i, back, front)
+		}
+		if !strings.HasPrefix(seq, fmt.Sprintf("\x1b_Gi=%d,", r.imageID)) {
+			t.Errorf("frame %d: upload should target new front %d, got prefix %q", i, r.imageID, seq[:20])
+		}
+
+		out, err := r.Display(vp)
+		if err != nil {
+			t.Fatalf("frame %d: unexpected error: %v", i, err)
+		}
+		place := strings.Index(out, fmt.Sprintf("a=p,i=%d,", r.imageID))
+		del := strings.Index(out, fmt.Sprintf("a=d,d=i,i=%d,", back))
+		if place < 0 || del < 0 || del < place {
+			t.Errorf("frame %d: want placement of %d followed by deletion of %d, got %q", i, r.imageID, back, out)
+		}
+		front = r.imageID
+		clock = clock.Add(time.Hour) // stay within the transfer budget
+	}
+}
+
+func TestKittyRenderer_FrameTransferBudget(t *testing.T) {
+	// Noise does not compress, so each frame costs roughly its raw size.
+	noise := image.NewRGBA(image.Rect(0, 0, 256, 256))
+	for i := range noise.Pix {
+		noise.Pix[i] = byte(i*131 + i/7)
+	}
+	frames := []image.Image{noise, image.NewRGBA(image.Rect(0, 0, 256, 256))}
+
+	clock := time.Unix(0, 0)
+	r := NewKittyRenderer()
+	r.now = func() time.Time { return clock }
+	r.imageID = 100
+
+	seq, err := r.buildFrameUpload(frames[0])
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if seq == "" {
+		t.Fatal("first frame should be sent")
+	}
+	wait := time.Duration(len(seq)) * time.Second / maxFrameBytesPerSecond
+	front := r.imageID
+
+	tests := []struct {
+		name     string
+		elapsed  time.Duration
+		wantSent bool
+	}{
+		{name: "skipped right after a large frame", elapsed: 0, wantSent: false},
+		{name: "skipped just before the budget recovers", elapsed: wait - time.Millisecond, wantSent: false},
+		{name: "sent once the budget recovers", elapsed: wait, wantSent: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clock = time.Unix(0, 0).Add(tt.elapsed)
+			got, err := r.buildFrameUpload(frames[1])
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if sent := got != ""; sent != tt.wantSent {
+				t.Errorf("sent = %v, want %v", sent, tt.wantSent)
+			}
+			if !tt.wantSent && r.imageID != front {
+				t.Errorf("skipped frame must not swap image IDs: imageID = %d, want %d", r.imageID, front)
+			}
+		})
+	}
+}
+
+func TestKittyRenderer_FramePayloadCache(t *testing.T) {
+	frame := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	r := NewKittyRenderer()
+
+	first, err := r.framePayload(frame)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Mutating the pixels must not change the payload: the cached encoding
+	// is reused instead of compressing the frame again.
+	frame.Pix[0] = 0xFF
+	second, err := r.framePayload(frame)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if first != second {
+		t.Error("payload should be served from the cache on the second call")
+	}
+}
+
+func TestKittyRenderer_DisplayedFrameDoesNotConsumeBudget(t *testing.T) {
+	newNoise := func(seed int) *image.RGBA {
+		img := image.NewRGBA(image.Rect(0, 0, 128, 128))
+		for i := range img.Pix {
+			img.Pix[i] = byte(i*131 + i/7 + seed)
+		}
+		return img
+	}
+	f0, f1, f2 := newNoise(0), newNoise(1), newNoise(2)
+
+	clock := time.Unix(0, 0)
+	r := NewKittyRenderer()
+	r.now = func() time.Time { return clock }
+	r.imageID = 100
+	r.frontSrc = f0 // as if Upload had sent the first frame
+
+	// The loop goes f1, f2, f0, f1, ... while each sent frame makes the next
+	// ones wait. Skipped frames still advance the caller's frame index.
+	steps := []struct {
+		name     string
+		src      image.Image
+		advance  bool // move the clock past the budget wait before this step
+		wantSent bool
+	}{
+		{name: "f1 is sent", src: f1, wantSent: true},
+		{name: "f2 is skipped while waiting", src: f2, wantSent: false},
+		{name: "f0 is skipped while waiting", src: f0, wantSent: false},
+		{name: "displayed f1 is not resent after the wait", src: f1, advance: true, wantSent: false},
+		{name: "f2 uses the budget f1 did not spend", src: f2, wantSent: true},
+	}
+
+	var wait time.Duration
+	for _, st := range steps {
+		if st.advance {
+			clock = clock.Add(wait)
+		}
+		seq, err := r.buildFrameUpload(st.src)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", st.name, err)
+		}
+		if sent := seq != ""; sent != st.wantSent {
+			t.Fatalf("%s: sent = %v, want %v", st.name, sent, st.wantSent)
+		}
+		if seq != "" {
+			wait = time.Duration(len(seq)) * time.Second / maxFrameBytesPerSecond
+		}
 	}
 }

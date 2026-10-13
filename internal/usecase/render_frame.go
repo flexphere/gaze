@@ -12,6 +12,8 @@ type RenderFrameUseCase interface {
 	Execute(img *domain.ImageEntity, vp *domain.Viewport) (string, error)
 	SetMinimapEnabled(enabled bool)
 	MinimapEnabled() bool
+	// SetFrame selects which animation frame the next Execute renders.
+	SetFrame(index int)
 }
 
 const (
@@ -25,6 +27,11 @@ type renderFrameUseCase struct {
 	uploaded        bool
 	minimapUploaded bool
 	minimapShown    bool
+
+	// frame is the animation frame to render; uploadedFrame is the one the
+	// terminal currently holds. Upload sends Frames[0] (Source) initially.
+	frame         int
+	uploadedFrame int
 }
 
 // NewRenderFrameUseCase creates a new RenderFrameUseCase.
@@ -38,6 +45,14 @@ func (uc *renderFrameUseCase) Execute(img *domain.ImageEntity, vp *domain.Viewpo
 			return "", fmt.Errorf("uploading image: %w", err)
 		}
 		uc.uploaded = true
+		uc.uploadedFrame = 0
+	}
+
+	if img.IsAnimated() && uc.frame != uc.uploadedFrame && uc.frame >= 0 && uc.frame < len(img.Frames) {
+		if err := uc.renderer.UploadFrame(img.Frames[uc.frame].Image); err != nil {
+			return "", fmt.Errorf("uploading animation frame: %w", err)
+		}
+		uc.uploadedFrame = uc.frame
 	}
 
 	output, err := uc.renderer.Display(vp)
@@ -83,6 +98,10 @@ func (uc *renderFrameUseCase) SetMinimapEnabled(enabled bool) {
 
 func (uc *renderFrameUseCase) MinimapEnabled() bool {
 	return uc.minimapCfg.Enabled
+}
+
+func (uc *renderFrameUseCase) SetFrame(index int) {
+	uc.frame = index
 }
 
 // minimapSize calculates the minimap display size in terminal cells.

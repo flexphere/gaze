@@ -38,6 +38,9 @@ func (m Model) statusBar() string {
 
 	right := dimStyle.Render(pos) + " " +
 		zoomStyle.Render(fmt.Sprintf("%d%%", zoom))
+	if m.paused {
+		right = zoomStyle.Render("PAUSED") + " " + right
+	}
 
 	gap := m.viewport.TermWidth - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {

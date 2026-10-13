@@ -2,14 +2,17 @@ package renderer
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"math"
+	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/image/draw"
 
@@ -18,9 +21,16 @@ import (
 
 var imageIDCounter uint32
 
+// maxFrameBytesPerSecond caps how much animation frame data is written to the
+// terminal. tmux passthrough in particular slows down the whole terminal when
+// flooded, so frames that would exceed the budget are skipped: the animation
+// drops frames instead of making the terminal sluggish.
+const maxFrameBytesPerSecond = 1 << 20
+
 // KittyRenderer implements RendererPort using the Kitty Graphics Protocol.
 type KittyRenderer struct {
 	imageID      uint32
+	spareID      uint32 // back buffer for animation frames (0 until the first frame)
 	imgW         int
 	imgH         int
 	minimapID    uint32
@@ -33,11 +43,23 @@ type KittyRenderer struct {
 	prevIndicator   [4]int // pxLeft, pxTop, pxRight, pxBottom
 	prevBorderColor string // cached border color
 	prevCached      bool   // true when cache is valid
+
+	// Animation frame state
+	framePayloads map[image.Image]framePayload // encoded once per frame, reused every loop
+	nextFrameAt   time.Time                    // frames before this time are skipped
+	frontSrc      image.Image                  // frame shown under imageID
+	now           func() time.Time             // replaceable clock for tests
+}
+
+// framePayload is an encoded frame ready to be chunked into an upload sequence.
+type framePayload struct {
+	format  string // Kitty transmission keys, e.g. "f=32,s=4,v=3,o=z"
+	encoded string // base64 data
 }
 
 // NewKittyRenderer creates a new KittyRenderer.
 func NewKittyRenderer() *KittyRenderer {
-	return &KittyRenderer{}
+	return &KittyRenderer{now: time.Now}
 }
 
 // Upload encodes and transmits the image to the terminal via Kitty graphics protocol.
@@ -45,8 +67,80 @@ func (r *KittyRenderer) Upload(img *domain.ImageEntity) error {
 	r.imageID = atomic.AddUint32(&imageIDCounter, 1)
 	r.imgW = img.Width
 	r.imgH = img.Height
+	r.frontSrc = img.Source
 
 	return r.uploadImage(r.imageID, img.Source)
+}
+
+// UploadFrame transmits an animation frame into the back buffer image and
+// swaps it with the displayed one. Display then places the new frame and
+// removes the placement of the old one. The frame is skipped when the
+// transfer budget (maxFrameBytesPerSecond) is exhausted.
+//
+// Two image IDs are alternated instead of retransmitting under one ID:
+// retransmitting the displayed image may drop its placement, and Bubbletea
+// does not rewrite a line whose content is unchanged, so an identical
+// placement sequence would never be re-emitted. Alternating IDs changes the
+// placement sequence every frame and keeps the old frame visible until the
+// new one is placed.
+func (r *KittyRenderer) UploadFrame(src image.Image) error {
+	seq, err := r.buildFrameUpload(src)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(os.Stdout, seq); err != nil {
+		return fmt.Errorf("writing frame upload: %w", err)
+	}
+	return nil
+}
+
+// buildFrameUpload builds the upload sequence for the back buffer and swaps
+// the front and back image IDs. It returns an empty string, leaving the
+// displayed frame as is, when the frame is skipped by the transfer budget or
+// is already displayed.
+func (r *KittyRenderer) buildFrameUpload(src image.Image) (string, error) {
+	// Frames skipped by the budget are still counted as shown by the caller,
+	// so the displayed frame can come around again. Resending it would spend
+	// the budget without changing the picture and, when the loop length lines
+	// up with the wait, freeze the animation on that frame.
+	if src == r.frontSrc {
+		return "", nil
+	}
+
+	now := r.now()
+	if now.Before(r.nextFrameAt) {
+		return "", nil
+	}
+
+	payload, err := r.framePayload(src)
+	if err != nil {
+		return "", err
+	}
+
+	if r.spareID == 0 {
+		r.spareID = atomic.AddUint32(&imageIDCounter, 1)
+	}
+	seq := buildChunkedUploadSequence(r.spareID, payload)
+	r.imageID, r.spareID = r.spareID, r.imageID
+	r.frontSrc = src
+	r.nextFrameAt = now.Add(time.Duration(len(seq)) * time.Second / maxFrameBytesPerSecond)
+	return seq, nil
+}
+
+// framePayload returns the cached encoding of src, encoding it on first use.
+func (r *KittyRenderer) framePayload(src image.Image) (framePayload, error) {
+	if p, ok := r.framePayloads[src]; ok {
+		return p, nil
+	}
+	p, err := encodeFramePayload(src)
+	if err != nil {
+		return framePayload{}, err
+	}
+	if r.framePayloads == nil {
+		r.framePayloads = make(map[image.Image]framePayload)
+	}
+	r.framePayloads[src] = p
+	return p, nil
 }
 
 // Display generates the Kitty graphics escape sequence for the given viewport.
@@ -98,6 +192,10 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 	output := "\x1b[H" // move cursor to top-left
 	output += fmt.Sprintf("\x1b_Ga=p,i=%d,p=1,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,q=2\x1b\\",
 		r.imageID, srcX, srcY, srcW, srcH, displayCols, displayRows)
+	if r.spareID > 0 {
+		// Remove the previous animation frame now that the new one is placed.
+		output += fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", r.spareID)
+	}
 
 	return output, nil
 }
@@ -106,6 +204,9 @@ func (r *KittyRenderer) Display(vp *domain.Viewport) (string, error) {
 func (r *KittyRenderer) Clear() error {
 	if r.imageID > 0 {
 		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.imageID)
+	}
+	if r.spareID > 0 {
+		fmt.Printf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.spareID)
 	}
 	return nil
 }
@@ -375,6 +476,27 @@ func buildUploadSequence(id uint32, img image.Image) (string, error) {
 	return out.String(), nil
 }
 
+// densePix returns the pixel bytes of img without row padding. The pixel
+// buffer is used directly if it's densely packed (stride == 4*width and origin
+// at 0,0). Otherwise rows are copied, which can happen with sub-images.
+func densePix(img *image.RGBA) []byte {
+	bounds := img.Bounds()
+	w := bounds.Dx()
+	h := bounds.Dy()
+
+	const bytesPerPixel = 4
+	if bounds.Min.X == 0 && bounds.Min.Y == 0 && img.Stride == w*bytesPerPixel {
+		return img.Pix
+	}
+	pix := make([]byte, w*h*bytesPerPixel)
+	for y := 0; y < h; y++ {
+		srcOff := (y+bounds.Min.Y)*img.Stride + bounds.Min.X*bytesPerPixel
+		dstOff := y * w * bytesPerPixel
+		copy(pix[dstOff:dstOff+w*bytesPerPixel], img.Pix[srcOff:srcOff+w*bytesPerPixel])
+	}
+	return pix
+}
+
 // buildRGBAUploadSequence creates Kitty upload escape sequences using raw RGBA
 // pixel data (f=32). This is much faster than PNG encoding since it skips the
 // compression step and uses the image's pixel buffer directly.
@@ -383,19 +505,7 @@ func buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
 	w := bounds.Dx()
 	h := bounds.Dy()
 
-	// Use pixel buffer directly if it's densely packed (stride == 4*width and
-	// origin at 0,0). Otherwise copy row-by-row to produce a dense buffer,
-	// which can happen with sub-images.
-	const bytesPerPixel = 4
-	pix := img.Pix
-	if bounds.Min.X != 0 || bounds.Min.Y != 0 || img.Stride != w*bytesPerPixel {
-		pix = make([]byte, w*h*bytesPerPixel)
-		for y := 0; y < h; y++ {
-			srcOff := (y+bounds.Min.Y)*img.Stride + bounds.Min.X*bytesPerPixel
-			dstOff := y * w * bytesPerPixel
-			copy(pix[dstOff:dstOff+w*bytesPerPixel], img.Pix[srcOff:srcOff+w*bytesPerPixel])
-		}
-	}
+	pix := densePix(img)
 
 	encoded := base64.StdEncoding.EncodeToString(pix)
 
@@ -421,6 +531,54 @@ func buildRGBAUploadSequence(id uint32, img *image.RGBA) string {
 		}
 	}
 
+	return out.String()
+}
+
+// encodeFramePayload encodes an animation frame. RGBA frames are sent as
+// zlib-compressed raw pixels (o=z), which is cheap to encode and shrinks the
+// large flat areas typical of GIFs; other images fall back to PNG.
+func encodeFramePayload(src image.Image) (framePayload, error) {
+	rgba, ok := src.(*image.RGBA)
+	if !ok {
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, src); err != nil {
+			return framePayload{}, fmt.Errorf("encoding frame to PNG: %w", err)
+		}
+		return framePayload{format: "f=100", encoded: base64.StdEncoding.EncodeToString(buf.Bytes())}, nil
+	}
+
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(densePix(rgba)); err != nil {
+		return framePayload{}, fmt.Errorf("compressing frame: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return framePayload{}, fmt.Errorf("compressing frame: %w", err)
+	}
+	bounds := rgba.Bounds()
+	return framePayload{
+		format:  fmt.Sprintf("f=32,s=%d,v=%d,o=z", bounds.Dx(), bounds.Dy()),
+		encoded: base64.StdEncoding.EncodeToString(buf.Bytes()),
+	}, nil
+}
+
+// buildChunkedUploadSequence splits an encoded payload into Kitty upload
+// escape sequences.
+func buildChunkedUploadSequence(id uint32, p framePayload) string {
+	var out strings.Builder
+	const chunkSize = 4096
+	for i := 0; i < len(p.encoded); i += chunkSize {
+		end := min(i+chunkSize, len(p.encoded))
+		more := 0
+		if end < len(p.encoded) {
+			more = 1
+		}
+		if i == 0 {
+			fmt.Fprintf(&out, "\x1b_Gi=%d,%s,a=t,t=d,q=2,m=%d;%s\x1b\\", id, p.format, more, p.encoded[i:end])
+		} else {
+			fmt.Fprintf(&out, "\x1b_Gi=%d,m=%d;%s\x1b\\", id, more, p.encoded[i:end])
+		}
+	}
 	return out.String()
 }
 

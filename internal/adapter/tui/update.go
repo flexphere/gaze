@@ -1,13 +1,53 @@
 package tui
 
 import (
+	"time"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Init returns the initial command.
 func (m Model) Init() tea.Cmd {
-	return nil
+	if !m.image.IsAnimated() {
+		return nil
+	}
+	return m.frameTick()
+}
+
+// frameTick schedules the next frame after the current frame's delay.
+func (m Model) frameTick() tea.Cmd {
+	gen := m.animGen
+	return tea.Tick(m.image.Frames[m.frameIndex].Delay, func(time.Time) tea.Msg {
+		return frameTickMsg{gen: gen}
+	})
+}
+
+func (m Model) handleFrameTick(msg frameTickMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.animGen || m.paused || m.err != nil {
+		return m, nil
+	}
+
+	m.frameIndex = (m.frameIndex + 1) % len(m.image.Frames)
+	m.renderFrame.SetFrame(m.frameIndex)
+	m.updateFrame()
+	if m.err != nil {
+		return m, nil
+	}
+	return m, m.frameTick()
+}
+
+func (m Model) toggleAnimation() (tea.Model, tea.Cmd) {
+	if !m.image.IsAnimated() {
+		return m, nil
+	}
+
+	m.paused = !m.paused
+	m.animGen++
+	if m.paused {
+		return m, nil
+	}
+	return m, m.frameTick()
 }
 
 // Update handles messages and updates the model.
@@ -29,6 +69,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		return m.handleMouseMsg(msg)
+
+	case frameTickMsg:
+		return m.handleFrameTick(msg)
 	}
 
 	return m, nil
@@ -56,6 +99,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vpCtrl.FitToWindow(m.viewport)
 	case key.Matches(msg, m.keymap.ToggleMinimap):
 		m.renderFrame.SetMinimapEnabled(!m.renderFrame.MinimapEnabled())
+	case key.Matches(msg, m.keymap.ToggleAnimation):
+		return m.toggleAnimation()
 	default:
 		return m, nil
 	}
