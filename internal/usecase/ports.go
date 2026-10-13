@@ -1,6 +1,10 @@
 package usecase
 
-import "github.com/flexphere/gaze/internal/domain"
+import (
+	"image"
+
+	"github.com/flexphere/gaze/internal/domain"
+)
 
 // ImageLoaderPort loads and decodes an image from a path.
 type ImageLoaderPort interface {
@@ -11,6 +15,9 @@ type ImageLoaderPort interface {
 // Kitty implementation: Upload() sends image data once, Display() specifies source rect.
 type RendererPort interface {
 	Upload(img *domain.ImageEntity) error
+	// UploadFrame replaces the pixel data of the uploaded image with src,
+	// keeping the same image ID. Used to advance animation frames.
+	UploadFrame(src image.Image) error
 	Display(vp *domain.Viewport) (string, error)
 	Clear() error
 

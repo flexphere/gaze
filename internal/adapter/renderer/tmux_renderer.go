@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"os/exec"
 	"strconv"
@@ -81,6 +82,17 @@ func (r *TmuxRenderer) Upload(img *domain.ImageEntity) error {
 	return nil
 }
 
+// UploadFrame transmits an animation frame into the back buffer image with
+// tmux DCS passthrough wrapping. See KittyRenderer.UploadFrame.
+func (r *TmuxRenderer) UploadFrame(src image.Image) error {
+	seq, err := r.inner.buildFrameUpload(src)
+	if err != nil {
+		return err
+	}
+	fmt.Print(r.wrapAllKittySequences(seq))
+	return nil
+}
+
 // Display returns the Kitty placement sequence wrapped for tmux.
 func (r *TmuxRenderer) Display(vp *domain.Viewport) (string, error) {
 	seq, err := r.inner.Display(vp)
@@ -94,6 +106,10 @@ func (r *TmuxRenderer) Display(vp *domain.Viewport) (string, error) {
 func (r *TmuxRenderer) Clear() error {
 	if r.inner.imageID > 0 {
 		seq := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.inner.imageID)
+		fmt.Print(r.wrapAllKittySequences(seq))
+	}
+	if r.inner.spareID > 0 {
+		seq := fmt.Sprintf("\x1b_Ga=d,d=i,i=%d\x1b\\", r.inner.spareID)
 		fmt.Print(r.wrapAllKittySequences(seq))
 	}
 	return nil

@@ -27,6 +27,17 @@ type Model struct {
 
 	// Optional callback invoked on window resize (e.g. to refresh tmux pane offset)
 	onResize func()
+
+	// Animation state. animGen is bumped on every pause/resume so that a tick
+	// scheduled before the toggle is ignored, keeping a single tick chain.
+	frameIndex int
+	paused     bool
+	animGen    int
+}
+
+// frameTickMsg advances the animation by one frame.
+type frameTickMsg struct {
+	gen int
 }
 
 // NewModel creates a new TUI model.
