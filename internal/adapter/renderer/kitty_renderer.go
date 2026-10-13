@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -85,7 +86,9 @@ func (r *KittyRenderer) UploadFrame(src image.Image) error {
 	if err != nil {
 		return err
 	}
-	fmt.Print(seq)
+	if _, err := fmt.Fprint(os.Stdout, seq); err != nil {
+		return fmt.Errorf("writing frame upload: %w", err)
+	}
 	return nil
 }
 

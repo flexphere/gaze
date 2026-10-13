@@ -89,7 +89,9 @@ func (r *TmuxRenderer) UploadFrame(src image.Image) error {
 	if err != nil {
 		return err
 	}
-	fmt.Print(r.wrapAllKittySequences(seq))
+	if _, err := fmt.Fprint(os.Stdout, r.wrapAllKittySequences(seq)); err != nil {
+		return fmt.Errorf("writing frame upload: %w", err)
+	}
 	return nil
 }
 
